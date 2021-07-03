@@ -1,0 +1,33 @@
+error[E0277]: the trait bound `I16: BikeshedIntrinsicFromAny<truncation::U8>` is not satisfied
+  --> $DIR/enums.rs:33:38
+   |
+LL |     assert_is_transmutable_any::<U8, I16>();
+   |                                      ^^^ the trait `BikeshedIntrinsicFromAny<truncation::U8>` is not implemented for `I16`
+   |
+note: required by a bound in `assert_is_transmutable_any`
+  --> $DIR/enums.rs:89:11
+   |
+LL | fn assert_is_transmutable_any<Src, Dst>()
+   |    -------------------------- required by a bound in this
+LL | where
+LL |     Dst:  BikeshedIntrinsicFromAny<Src>
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `assert_is_transmutable_any`
+
+error[E0277]: the trait bound `Src: BikeshedIntrinsicFromAnyExceptValidity<Dst>` is not satisfied
+  --> $DIR/enums.rs:54:55
+   |
+LL |     assert_is_transmutable_any_except_validity::<Dst, Src>();
+   |                                                       ^^^ the trait `BikeshedIntrinsicFromAnyExceptValidity<Dst>` is not implemented for `Src`
+   |
+note: required by a bound in `assert_is_transmutable_any_except_validity`
+  --> $DIR/enums.rs:184:11
+   |
+LL | fn assert_is_transmutable_any_except_validity<Src, Dst>()
+   |    ------------------------------------------ required by a bound in this
+LL | where
+LL |     Dst:  BikeshedIntrinsicFromAnyExceptValidity<Src>
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `assert_is_transmutable_any_except_validity`
+
+error: aborting due to 2 previous errors
+
+For more information about this error, try `rustc --explain E0277`.

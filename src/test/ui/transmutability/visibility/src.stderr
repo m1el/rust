@@ -1,0 +1,12 @@
+error[E0446]: private type `src_field_type_private::src::Zst` in public interface
+  --> $DIR/src.rs:108:13
+   |
+LL |         #[repr(C)] pub(self) struct Zst; // <- private type
+   |                    --------------------- `src_field_type_private::src::Zst` declared as private
+...
+LL |             pub(in super) field: Zst,
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^ can't leak private type
+
+error: aborting due to previous error
+
+For more information about this error, try `rustc --explain E0446`.

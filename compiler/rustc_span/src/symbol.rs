@@ -1434,6 +1434,7 @@ symbols! {
         trait_alias,
         trait_upcasting,
         transmute,
+        transmute_trait,
         transparent,
         transparent_enums,
         transparent_unions,
