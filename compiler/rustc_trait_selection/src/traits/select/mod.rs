@@ -1551,6 +1551,9 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                 );
             }
 
+            // FIXME
+            (TransmutabilityCandidate, _) | (_, TransmutabilityCandidate) => false,
+
             // (*)
             (
                 BuiltinCandidate { has_nested: false }

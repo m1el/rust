@@ -300,6 +300,10 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                 self.assemble_builtin_bound_candidates(sized_conditions, &mut candidates);
             } else if lang_items.unsize_trait() == Some(def_id) {
                 self.assemble_candidates_for_unsizing(obligation, &mut candidates);
+            } else if lang_items.transmute_trait() == Some(def_id) {
+                // User-defined transmutability impls are permitted.
+                self.assemble_candidates_from_impls(obligation, &mut candidates);
+                self.assemble_candidates_for_transmutability(obligation, &mut candidates);
             } else if lang_items.drop_trait() == Some(def_id)
                 && obligation.predicate.skip_binder().constness == ty::BoundConstness::ConstIfConst
             {
@@ -874,6 +878,22 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
 
             _ => {}
         };
+    }
+
+    fn assemble_candidates_for_transmutability(
+        &mut self,
+        obligation: &TraitObligation<'tcx>,
+        candidates: &mut SelectionCandidateSet<'tcx>,
+    ) {
+        if obligation.potentially_has_param_types_or_consts() {
+            return candidates.ambiguous = false;
+        }
+
+        if obligation.has_infer_types_or_consts() {
+            return candidates.ambiguous = true;
+        }
+
+        candidates.vec.push(TransmutabilityCandidate);
     }
 
     fn assemble_candidates_for_trait_alias(

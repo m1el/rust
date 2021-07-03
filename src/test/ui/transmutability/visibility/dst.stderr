@@ -1,0 +1,58 @@
+error[E0277]: the trait bound `dst_field_private::dst::Dst: BikeshedIntrinsicFrom<dst_field_private::src::Src, dst_field_private::_::{closure#0}::Context, false, false, false, false>` is not satisfied
+  --> $DIR/dst.rs:36:45
+   |
+LL |         assert::is_transmutable::<src::Src, dst::Dst, Context>();
+   |                                             ^^^^^^^^ the trait `BikeshedIntrinsicFrom<dst_field_private::src::Src, dst_field_private::_::{closure#0}::Context, false, false, false, false>` is not implemented for `dst_field_private::dst::Dst`
+   |
+note: required by a bound in `assert::is_transmutable`
+  --> $DIR/dst.rs:14:18
+   |
+LL |         pub fn is_transmutable<Src, Dst, Context>()
+   |                --------------- required by a bound in this
+LL |         where
+LL |             Dst: BikeshedIntrinsicFrom<Src, Context, false, false, false, false>
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `assert::is_transmutable`
+
+error[E0277]: the trait bound `dst_type_private::dst::Dst: BikeshedIntrinsicFrom<dst_type_private::src::Src, dst_type_private::_::{closure#0}::Context, false, false, false, false>` is not satisfied
+  --> $DIR/dst.rs:74:9
+   |
+LL |         dst::is_transmutable::<src::Src, Context>();
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `BikeshedIntrinsicFrom<dst_type_private::src::Src, dst_type_private::_::{closure#0}::Context, false, false, false, false>` is not implemented for `dst_type_private::dst::Dst`
+   |
+note: required because of the requirements on the impl of `dst_type_private::dst::IsTransmutable<dst_type_private::src::Src, dst_type_private::_::{closure#0}::Context>` for `dst_type_private::dst::Dst`
+  --> $DIR/dst.rs:61:28
+   |
+LL |         impl<Src, Context> IsTransmutable<Src, Context> for Dst
+   |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^     ^^^
+note: required by a bound in `dst_type_private::dst::is_transmutable`
+  --> $DIR/dst.rs:68:18
+   |
+LL |         pub fn is_transmutable<Src, Context>()
+   |                --------------- required by a bound in this
+LL |         where
+LL |             Dst: IsTransmutable<Src, Context>
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `dst_type_private::dst::is_transmutable`
+
+error[E0277]: the trait bound `dst_field_type_private::dst::Dst: BikeshedIntrinsicFrom<dst_field_type_private::src::Src, dst_field_type_private::_::{closure#0}::Context, false, false, false, false>` is not satisfied
+  --> $DIR/dst.rs:112:9
+   |
+LL |         dst::is_transmutable::<src::Src, Context>();
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `BikeshedIntrinsicFrom<dst_field_type_private::src::Src, dst_field_type_private::_::{closure#0}::Context, false, false, false, false>` is not implemented for `dst_field_type_private::dst::Dst`
+   |
+note: required because of the requirements on the impl of `dst_field_type_private::dst::IsTransmutable<dst_field_type_private::src::Src, dst_field_type_private::_::{closure#0}::Context>` for `dst_field_type_private::dst::Dst`
+  --> $DIR/dst.rs:99:28
+   |
+LL |         impl<Src, Context> IsTransmutable<Src, Context> for Dst
+   |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^     ^^^
+note: required by a bound in `dst_field_type_private::dst::is_transmutable`
+  --> $DIR/dst.rs:106:18
+   |
+LL |         pub fn is_transmutable<Src, Context>()
+   |                --------------- required by a bound in this
+LL |         where
+LL |             Dst: IsTransmutable<Src, Context>
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `dst_field_type_private::dst::is_transmutable`
+
+error: aborting due to 3 previous errors
+
+For more information about this error, try `rustc --explain E0277`.

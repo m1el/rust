@@ -752,6 +752,10 @@ impl<'tcx> TraitPredicate<'tcx> {
     pub fn self_ty(self) -> Ty<'tcx> {
         self.trait_ref.self_ty()
     }
+
+    pub fn substs(self) -> SubstsRef<'tcx> {
+        self.trait_ref.substs
+    }
 }
 
 impl<'tcx> PolyTraitPredicate<'tcx> {
@@ -762,6 +766,10 @@ impl<'tcx> PolyTraitPredicate<'tcx> {
 
     pub fn self_ty(self) -> ty::Binder<'tcx, Ty<'tcx>> {
         self.map_bound(|trait_ref| trait_ref.self_ty())
+    }
+
+    pub fn substs(self) -> ty::Binder<'tcx, SubstsRef<'tcx>> {
+        self.map_bound(|trait_ref| trait_ref.substs())
     }
 }
 
@@ -1588,6 +1596,40 @@ impl VariantDef {
     }
 }
 
+impl PartialOrd for VariantDef {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(&other))
+    }
+}
+
+/// There should be only one VariantDef for each `def_id`, therefore
+/// it is fine to implement `Ord` only based on `def_id`.
+impl Ord for VariantDef {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.def_id.cmp(&other.def_id)
+    }
+}
+
+/// There should be only one VariantDef for each `def_id`, therefore
+/// it is fine to implement `PartialEq` only based on `def_id`.
+impl PartialEq for VariantDef {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.def_id == other.def_id
+    }
+}
+
+impl Eq for VariantDef {}
+
+/// There should be only one VariantDef for each `def_id`, therefore
+/// it is fine to implement `Hash` only based on `def_id`.
+impl Hash for VariantDef {
+    #[inline]
+    fn hash<H: Hasher>(&self, s: &mut H) {
+        self.def_id.hash(s)
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq, TyEncodable, TyDecodable, HashStable)]
 pub enum VariantDiscr {
     /// Explicit value for this variant, i.e., `X = 123`.
@@ -1606,6 +1648,40 @@ pub struct FieldDef {
     pub did: DefId,
     pub name: Symbol,
     pub vis: Visibility,
+}
+
+impl PartialOrd for FieldDef {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(&other))
+    }
+}
+
+/// There should be only one FieldDef for each `did`, therefore
+/// it is fine to implement `Ord` only based on `did`.
+impl Ord for FieldDef {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.did.cmp(&other.did)
+    }
+}
+
+/// There should be only one FieldDef for each `did`, therefore
+/// it is fine to implement `PartialEq` only based on `did`.
+impl PartialEq for FieldDef {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.did == other.did
+    }
+}
+
+impl Eq for FieldDef {}
+
+/// There should be only one FieldDef for each `did`, therefore
+/// it is fine to implement `Hash` only based on `did`.
+impl Hash for FieldDef {
+    #[inline]
+    fn hash<H: Hasher>(&self, s: &mut H) {
+        self.did.hash(s)
+    }
 }
 
 bitflags! {
