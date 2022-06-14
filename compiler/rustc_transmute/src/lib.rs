@@ -18,6 +18,7 @@ pub use debug::DebugEntry;
 pub enum TransmuteError<'tcx> {
     NonReprC(Ty<'tcx>),
     TuplesNonReprC(Ty<'tcx>),
+    DstHasPrivateField,
     TypeNotSupported(Ty<'tcx>),
     ImproperContextParameter,
     LayoutOverflow,
@@ -41,6 +42,7 @@ pub struct TransmuteQuery<'tcx> {
     pub assume: Assume,
 }
 
+#[derive(Clone, Copy)]
 pub struct Assume {
     pub alignment: bool,
     pub lifetimes: bool,

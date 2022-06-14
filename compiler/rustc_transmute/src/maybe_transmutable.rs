@@ -3,16 +3,18 @@ use crate::build::NfaBuilder;
 // use crate::Answer;
 
 use crate::exec::Execution;
-use crate::TransmuteError;
+use crate::{TransmuteError, TransmuteQuery};
 // use crate::Assume; //Map, Set, Types};
 
 // use rustc_middle::ty::layout::HasTyCtxt;
 
-pub fn check_transmute<'tcx>(
-    query: crate::TransmuteQuery<'tcx>,
-) -> Result<(), TransmuteError<'tcx>> {
-    let dst_nfa = NfaBuilder::build_ty(query.ctxt, query.scope, query.dst)?;
-    let src_nfa = NfaBuilder::build_ty(query.ctxt, query.scope, query.src)?;
+pub fn check_transmute<'tcx>(query: TransmuteQuery<'tcx>) -> Result<(), TransmuteError<'tcx>> {
+    let TransmuteQuery { ctxt, scope, dst, src, assume } = query;
+    let dst_nfa = NfaBuilder::build_ty(ctxt, scope, dst, assume)?;
+    let src_nfa = NfaBuilder::build_ty(ctxt, scope, src, assume)?;
+    if dst_nfa.has_private {
+        return Err(TransmuteError::DstHasPrivateField);
+    }
     // println!("dst: {:?}", dst_nfa);
     // println!("src: {:?}", src_nfa);
     let mut exec = Execution::new(dst_nfa, src_nfa);

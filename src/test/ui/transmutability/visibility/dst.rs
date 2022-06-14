@@ -63,7 +63,7 @@ mod dst_type_private {
             Dst: BikeshedIntrinsicFrom<Src, Context, false, false, false, false>
         {}
 
-        pub fn is_transmutable<Src, Context>() //~ ERROR
+        pub fn is_transmutable<Src, Context>()
         where
             Dst: IsTransmutable<Src, Context>
         {}
@@ -89,7 +89,7 @@ mod dst_field_type_private {
         #[repr(C)] pub(self) struct Zst; // <- private type
 
         #[repr(C)] pub(in super) struct Dst {
-            pub(in super) field: Zst, //~ ERROR
+            pub(in super) field: Zst,
         }
 
         use std::mem::BikeshedIntrinsicFrom;
@@ -101,7 +101,7 @@ mod dst_field_type_private {
             Dst: BikeshedIntrinsicFrom<Src, Context, false, false, false, false>
         {}
 
-        pub fn is_transmutable<Src, Context>() //~ ERROR
+        pub fn is_transmutable<Src, Context>()
         where
             Dst: IsTransmutable<Src, Context>
         {}

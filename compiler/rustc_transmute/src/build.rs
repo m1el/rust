@@ -5,7 +5,7 @@ use core::iter::repeat_with;
 
 use crate::debug::DebugEntry;
 use crate::prog::*;
-use crate::TransmuteError;
+use crate::{Assume, TransmuteError};
 
 // use rustc_macros::TypeFoldable;
 use rustc_middle::ty::TyCtxt;
@@ -32,17 +32,19 @@ fn layout_of<'tcx>(ctx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> TResult<'tcx, Layout> {
 const MAX_NFA_SIZE: usize = u32::max_value() as usize;
 
 pub struct NfaBuilder<'tcx> {
-    pub layout: Layout,
-    pub insts: Vec<Inst<'tcx>>,
-    pub priv_depth: usize,
-    pub debug: Vec<DebugEntry<'tcx>>,
-    pub debug_parent: usize,
-    pub tcx: TyCtxt<'tcx>,
-    pub module: DefId,
+    layout: Layout,
+    insts: Vec<Inst<'tcx>>,
+    priv_depth: usize,
+    debug: Vec<DebugEntry<'tcx>>,
+    debug_parent: usize,
+    tcx: TyCtxt<'tcx>,
+    module: DefId,
+    has_private: bool,
+    assume: Assume,
 }
 
 impl<'tcx> NfaBuilder<'tcx> {
-    pub fn new(tcx: TyCtxt<'tcx>, scope: Ty<'tcx>) -> TResult<'tcx, Self> {
+    pub fn new(tcx: TyCtxt<'tcx>, scope: Ty<'tcx>, assume: Assume) -> TResult<'tcx, Self> {
         use rustc_type_ir::TyKind;
         let module = if let TyKind::Adt(adt_def, ..) = scope.kind() {
             use rustc_middle::ty::DefIdTree;
@@ -59,6 +61,8 @@ impl<'tcx> NfaBuilder<'tcx> {
             debug_parent: 0,
             tcx,
             module,
+            has_private: false,
+            assume,
         })
     }
 
@@ -66,15 +70,17 @@ impl<'tcx> NfaBuilder<'tcx> {
         tcx: TyCtxt<'tcx>,
         scope: Ty<'tcx>,
         ty: Ty<'tcx>,
+        assume: Assume,
     ) -> TResult<'tcx, Program<'tcx>> {
-        let mut builder = Self::new(tcx, scope)?;
+        let mut builder = Self::new(tcx, scope, assume)?;
 
         builder.debug.push(DebugEntry::Root { ip: 0, ty });
         builder.debug_parent = 0;
 
         builder.extend_from_ty(ty)?;
         builder.push(Inst::Accept)?;
-        Ok(Program::new(builder.insts, builder.debug, builder.layout.size()))
+        let NfaBuilder { insts, debug, layout, has_private, .. } = builder;
+        Ok(Program::new(insts, debug, layout.size(), has_private))
     }
 
     fn debug_enter<F>(&mut self, f: F)
@@ -130,11 +136,19 @@ impl<'tcx> NfaBuilder<'tcx> {
 
             Adt(adt_def, substs_ref) => {
                 use rustc_middle::ty::AdtKind::*;
+
+                let private = !self.is_visible(adt_def.did());
+                self.has_private |= private;
+                self.priv_depth -= private as usize;
+
                 match adt_def.adt_kind() {
-                    Struct => self.extend_struct(ty, *adt_def, substs_ref),
-                    Enum => self.extend_enum(ty, *adt_def, substs_ref),
-                    Union => self.extend_union(ty, *adt_def, substs_ref),
-                }
+                    Struct => self.extend_struct(ty, *adt_def, substs_ref)?,
+                    Enum => self.extend_enum(ty, *adt_def, substs_ref)?,
+                    Union => self.extend_union(ty, *adt_def, substs_ref)?,
+                };
+                self.priv_depth -= private as usize;
+
+                Ok(())
             }
 
             &RawPtr(ty_and_mut) => {
@@ -184,7 +198,8 @@ impl<'tcx> NfaBuilder<'tcx> {
     }
 
     fn is_visible(&self, def_id: DefId) -> bool {
-        self.tcx.visibility(def_id).is_accessible_from(self.module, self.tcx)
+        self.assume.visibility
+            || self.tcx.visibility(def_id).is_accessible_from(self.module, self.tcx)
     }
 
     fn extend_struct(
@@ -218,6 +233,7 @@ impl<'tcx> NfaBuilder<'tcx> {
             self.pad_to_align(field_layout.align())?;
 
             let private = !self.is_visible(field_def.did);
+            self.has_private |= private;
             self.priv_depth += private as usize;
             self.extend_from_ty(field_ty)?;
             self.priv_depth -= private as usize;
@@ -407,6 +423,7 @@ impl<'tcx> NfaBuilder<'tcx> {
         assert!(ty_layout.align() <= layout.align(), "Union field align must fit parent align");
 
         let private = !self.is_visible(field.did);
+        self.has_private |= private;
         self.priv_depth += private as usize;
         self.extend_from_ty(ty)?;
         self.priv_depth -= private as usize;

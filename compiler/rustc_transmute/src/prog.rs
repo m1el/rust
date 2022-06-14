@@ -182,6 +182,7 @@ pub enum LayoutStep<'tcx> {
 pub struct Program<'tcx> {
     pub insts: Vec<Inst<'tcx>>,
     pub debug: Vec<DebugEntry<'tcx>>,
+    pub has_private: bool,
     size: usize,
     ip: InstPtr,
     pos: usize,
@@ -191,8 +192,23 @@ pub struct Program<'tcx> {
 }
 
 impl<'tcx> Program<'tcx> {
-    pub fn new(insts: Vec<Inst<'tcx>>, debug: Vec<DebugEntry<'tcx>>, size: usize) -> Self {
-        Self { insts, debug, size, ip: 0, pos: 0, sforks: 0, took_fork: None, current: None }
+    pub fn new(
+        insts: Vec<Inst<'tcx>>,
+        debug: Vec<DebugEntry<'tcx>>,
+        size: usize,
+        has_private: bool,
+    ) -> Self {
+        Self {
+            insts,
+            debug,
+            has_private,
+            size,
+            ip: 0,
+            pos: 0,
+            sforks: 0,
+            took_fork: None,
+            current: None,
+        }
     }
 
     pub fn extend_to(&mut self, other: &Self) {
