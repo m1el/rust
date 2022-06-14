@@ -30,7 +30,8 @@ pub fn check_transmute<'tcx>(query: TransmuteQuery<'tcx>) -> Result<(), Transmut
             let dst_dbg = reject.dst
                 .iter().map(|dbg| dbg.ident())
                 .collect::<Vec<_>>();
-            println!("Reject: reason={:?}, pos={}, {:?} -> {:?}", reject.reason, reject.pos, src_dbg, dst_dbg);
+            println!("Reject: src={:?} dst={:?} reason={:?}, pos={}, {:?} -> {:?}",
+                src, dst, reject.reason, reject.pos, src_dbg, dst_dbg);
         }
         */
         Err(TransmuteError::Rejected(result))

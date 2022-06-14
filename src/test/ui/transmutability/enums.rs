@@ -18,9 +18,14 @@ fn test_well_defined() {
 fn test_read_tag() {
     #[repr(C, u8)]
     pub enum FakeBool { True = 1, False = 0 }
+    #[repr(C, u8)]
+    pub enum MsBool { True = 1, False = 0, FileNotFound = 3 }
 
     assert_is_transmutable_assume_nothing::<FakeBool, u8>();
     assert_is_transmutable_assume_nothing::<bool, FakeBool>();
+    assert_is_transmutable_assume_nothing::<FakeBool, bool>();
+    assert_is_transmutable_assume_nothing::<bool, MsBool>();
+    assert_is_transmutable_assume_nothing::<MsBool, bool>(); //~ ERROR not satisfied
     // cannot write to tag without verifying
     assert_is_transmutable_assume_nothing::<u8, FakeBool>(); //~ ERROR not satisfied
     // can write to tag if validity is checked
