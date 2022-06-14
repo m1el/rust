@@ -17,13 +17,14 @@ fn test_well_defined() {
 
 fn test_read_tag() {
     #[repr(C, u8)]
-    pub enum OnlyTag { A }
+    pub enum FakeBool { True = 1, False = 0 }
 
-    assert_is_transmutable_assume_nothing::<OnlyTag, u8>();
+    assert_is_transmutable_assume_nothing::<FakeBool, u8>();
+    assert_is_transmutable_assume_nothing::<bool, FakeBool>();
     // cannot write to tag without verifying
-    assert_is_transmutable_assume_nothing::<u8, OnlyTag>(); //~ ERROR not satisfied
+    assert_is_transmutable_assume_nothing::<u8, FakeBool>(); //~ ERROR not satisfied
     // can write to tag if validity is checked
-    assert_is_transmutable_assume_validity::<u8, OnlyTag>();
+    assert_is_transmutable_assume_validity::<u8, FakeBool>();
 }
 
 fn test_with_data() {
