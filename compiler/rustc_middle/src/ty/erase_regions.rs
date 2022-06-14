@@ -1,5 +1,5 @@
 use crate::mir;
-use crate::ty::fold::{TypeFoldable, TypeFolder};
+use crate::ty::fold::{TypeFoldable, TypeFolder, TypeSuperFoldable};
 use crate::ty::{self, Ty, TyCtxt, TypeFlags};
 
 pub(super) fn provide(providers: &mut ty::query::Providers) {
@@ -21,9 +21,7 @@ impl<'tcx> TyCtxt<'tcx> {
         T: TypeFoldable<'tcx>,
     {
         // If there's nothing to erase avoid performing the query at all
-        if !value
-            .has_type_flags(TypeFlags::HAS_RE_LATE_BOUND | TypeFlags::HAS_POTENTIAL_FREE_REGIONS)
-        {
+        if !value.has_type_flags(TypeFlags::HAS_RE_LATE_BOUND | TypeFlags::HAS_FREE_REGIONS) {
             return value;
         }
         debug!("erase_regions({:?})", value);

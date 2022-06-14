@@ -1,13 +1,12 @@
 use clippy_utils::diagnostics::{span_lint_and_sugg, span_lint_and_then};
-use clippy_utils::source::snippet_opt;
+use clippy_utils::source::{snippet_opt, snippet_with_context};
 use clippy_utils::{fn_def_id, path_to_local_id};
 use if_chain::if_chain;
 use rustc_ast::ast::Attribute;
 use rustc_errors::Applicability;
-use rustc_hir::intravisit::{walk_expr, FnKind, NestedVisitorMap, Visitor};
+use rustc_hir::intravisit::{walk_expr, FnKind, Visitor};
 use rustc_hir::{Block, Body, Expr, ExprKind, FnDecl, HirId, MatchSource, PatKind, StmtKind};
 use rustc_lint::{LateContext, LateLintPass, LintContext};
-use rustc_middle::hir::map::Map;
 use rustc_middle::lint::in_external_macro;
 use rustc_middle::ty::subst::GenericArgKind;
 use rustc_session::{declare_lint_pass, declare_tool_lint};
@@ -227,14 +226,10 @@ fn emit_return_lint(cx: &LateContext<'_>, ret_span: Span, inner_span: Option<Spa
     }
     match inner_span {
         Some(inner_span) => {
-            if in_external_macro(cx.tcx.sess, inner_span) || inner_span.from_expansion() {
-                return;
-            }
-
+            let mut applicability = Applicability::MachineApplicable;
             span_lint_and_then(cx, NEEDLESS_RETURN, ret_span, "unneeded `return` statement", |diag| {
-                if let Some(snippet) = snippet_opt(cx, inner_span) {
-                    diag.span_suggestion(ret_span, "remove `return`", snippet, Applicability::MachineApplicable);
-                }
+                let (snippet, _) = snippet_with_context(cx, inner_span, ret_span.ctxt(), "..", &mut applicability);
+                diag.span_suggestion(ret_span, "remove `return`", snippet, applicability);
             });
         },
         None => match replacement {
@@ -287,10 +282,8 @@ struct BorrowVisitor<'a, 'tcx> {
 }
 
 impl<'tcx> Visitor<'tcx> for BorrowVisitor<'_, 'tcx> {
-    type Map = Map<'tcx>;
-
     fn visit_expr(&mut self, expr: &'tcx Expr<'_>) {
-        if self.borrows {
+        if self.borrows || expr.span.from_expansion() {
             return;
         }
 
@@ -301,14 +294,10 @@ impl<'tcx> Visitor<'tcx> for BorrowVisitor<'_, 'tcx> {
                 .fn_sig(def_id)
                 .output()
                 .skip_binder()
-                .walk(self.cx.tcx)
+                .walk()
                 .any(|arg| matches!(arg.unpack(), GenericArgKind::Lifetime(_)));
         }
 
         walk_expr(self, expr);
-    }
-
-    fn nested_visit_map(&mut self) -> NestedVisitorMap<Self::Map> {
-        NestedVisitorMap::None
     }
 }

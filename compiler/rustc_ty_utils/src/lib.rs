@@ -6,7 +6,7 @@
 
 #![doc(html_root_url = "https://doc.rust-lang.org/nightly/nightly-rustc/")]
 #![feature(control_flow_enum)]
-#![feature(nll)]
+#![feature(let_else)]
 #![recursion_limit = "256"]
 
 #[macro_use]

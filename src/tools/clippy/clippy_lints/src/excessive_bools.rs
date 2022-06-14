@@ -4,8 +4,6 @@ use rustc_lint::{EarlyContext, EarlyLintPass};
 use rustc_session::{declare_tool_lint, impl_lint_pass};
 use rustc_span::{sym, Span};
 
-use std::convert::TryInto;
-
 declare_clippy_lint! {
     /// ### What it does
     /// Checks for excessive
@@ -20,7 +18,6 @@ declare_clippy_lint! {
     /// readability and API.
     ///
     /// ### Example
-    /// Bad:
     /// ```rust
     /// struct S {
     ///     is_pending: bool,
@@ -29,7 +26,7 @@ declare_clippy_lint! {
     /// }
     /// ```
     ///
-    /// Good:
+    /// Use instead:
     /// ```rust
     /// enum S {
     ///     Pending,

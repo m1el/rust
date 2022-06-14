@@ -27,7 +27,7 @@ pub enum LoadResult<T> {
     },
     /// The file either didn't exist or was produced by an incompatible compiler version.
     DataOutOfDate,
-    /// An error occured.
+    /// An error occurred.
     Error {
         #[allow(missing_docs)]
         message: String,
@@ -158,29 +158,20 @@ pub fn load_dep_graph(sess: &Session) -> DepGraphFuture {
             // Decode the list of work_products
             let mut work_product_decoder = Decoder::new(&work_products_data[..], start_pos);
             let work_products: Vec<SerializedWorkProduct> =
-                Decodable::decode(&mut work_product_decoder).unwrap_or_else(|e| {
-                    let msg = format!(
-                        "Error decoding `work-products` from incremental \
-                                    compilation session directory: {}",
-                        e
-                    );
-                    sess.fatal(&msg)
-                });
+                Decodable::decode(&mut work_product_decoder);
 
             for swp in work_products {
                 let mut all_files_exist = true;
-                if let Some(ref file_name) = swp.work_product.saved_file {
-                    let path = in_incr_comp_dir_sess(sess, file_name);
-                    if !path.exists() {
-                        all_files_exist = false;
+                let path = in_incr_comp_dir_sess(sess, &swp.work_product.saved_file);
+                if !path.exists() {
+                    all_files_exist = false;
 
-                        if sess.opts.debugging_opts.incremental_info {
-                            eprintln!(
-                                "incremental: could not find file for work \
+                    if sess.opts.debugging_opts.incremental_info {
+                        eprintln!(
+                            "incremental: could not find file for work \
                                     product: {}",
-                                path.display()
-                            );
-                        }
+                            path.display()
+                        );
                     }
                 }
 
@@ -203,8 +194,7 @@ pub fn load_dep_graph(sess: &Session) -> DepGraphFuture {
             LoadResult::Error { message } => LoadResult::Error { message },
             LoadResult::Ok { data: (bytes, start_pos) } => {
                 let mut decoder = Decoder::new(&bytes, start_pos);
-                let prev_commandline_args_hash = u64::decode(&mut decoder)
-                    .expect("Error reading commandline arg hash from cached dep-graph");
+                let prev_commandline_args_hash = u64::decode(&mut decoder);
 
                 if prev_commandline_args_hash != expected_hash {
                     if report_incremental_info {
@@ -220,8 +210,7 @@ pub fn load_dep_graph(sess: &Session) -> DepGraphFuture {
                     return LoadResult::DataOutOfDate;
                 }
 
-                let dep_graph = SerializedDepGraph::decode(&mut decoder)
-                    .expect("Error reading cached dep-graph");
+                let dep_graph = SerializedDepGraph::decode(&mut decoder);
 
                 LoadResult::Ok { data: (dep_graph, prev_work_products) }
             }

@@ -15,7 +15,7 @@ use super::Recover;
 
 // FIXME(conventions): implement bounded iterators
 
-/// A set based on a B-Tree.
+/// An ordered set based on a B-Tree.
 ///
 /// See [`BTreeMap`]'s documentation for a detailed discussion of this collection's performance
 /// benefits and drawbacks.
@@ -23,9 +23,12 @@ use super::Recover;
 /// It is a logic error for an item to be modified in such a way that the item's ordering relative
 /// to any other item, as determined by the [`Ord`] trait, changes while it is in the set. This is
 /// normally only possible through [`Cell`], [`RefCell`], global state, I/O, or unsafe code.
-/// The behavior resulting from such a logic error is not specified (it could include panics,
-/// incorrect results, aborts, memory leaks, or non-termination) but will not be undefined
-/// behavior.
+/// The behavior resulting from such a logic error is not specified, but will be encapsulated to the
+/// `BTreeSet` that observed the logic error and not result in undefined behavior. This could
+/// include panics, incorrect results, aborts, memory leaks, and non-termination.
+///
+/// Iterators returned by [`BTreeSet::iter`] produce their items in order, and take worst-case
+/// logarithmic and amortized constant time per item returned.
 ///
 /// [`Ord`]: core::cmp::Ord
 /// [`Cell`]: core::cell::Cell
@@ -57,7 +60,7 @@ use super::Recover;
 ///
 /// // Iterate over everything.
 /// for book in &books {
-///     println!("{}", book);
+///     println!("{book}");
 /// }
 /// ```
 ///
@@ -281,7 +284,7 @@ impl<T> BTreeSet<T> {
     /// set.insert(5);
     /// set.insert(8);
     /// for &elem in set.range((Included(&4), Included(&8))) {
-    ///     println!("{}", elem);
+    ///     println!("{elem}");
     /// }
     /// assert_eq!(Some(&5), set.range(4..).next());
     /// ```
@@ -767,10 +770,14 @@ impl<T> BTreeSet<T> {
 
     /// Adds a value to the set.
     ///
-    /// If the set did not have an equal element present, `true` is returned.
+    /// Returns whether the value was newly inserted. That is:
     ///
-    /// If the set did have an equal element present, `false` is returned, and
-    /// the entry is not updated. See the [module-level documentation] for more.
+    /// - If the set did not previously contain an equal value, `true` is
+    ///   returned.
+    /// - If the set already contained an equal value, `false` is returned, and
+    ///   the entry is not updated.
+    ///
+    /// See the [module-level documentation] for more.
     ///
     /// [module-level documentation]: index.html#insert-and-complex-keys
     ///
@@ -870,7 +877,7 @@ impl<T> BTreeSet<T> {
 
     /// Retains only the elements specified by the predicate.
     ///
-    /// In other words, remove all elements `e` such that `f(&e)` returns `false`.
+    /// In other words, remove all elements `e` for which `f(&e)` returns `false`.
     /// The elements are visited in ascending order.
     ///
     /// # Examples
@@ -892,7 +899,7 @@ impl<T> BTreeSet<T> {
         self.drain_filter(|v| !f(v));
     }
 
-    /// Moves all elements from `other` into `Self`, leaving `other` empty.
+    /// Moves all elements from `other` into `self`, leaving `other` empty.
     ///
     /// # Examples
     ///
@@ -1086,7 +1093,13 @@ impl<T: Ord> FromIterator<T> for BTreeSet<T> {
 
         // use stable sort to preserve the insertion order.
         inputs.sort();
-        let iter = inputs.into_iter().map(|k| (k, ()));
+        BTreeSet::from_sorted_iter(inputs.into_iter())
+    }
+}
+
+impl<T: Ord> BTreeSet<T> {
+    fn from_sorted_iter<I: Iterator<Item = T>>(iter: I) -> BTreeSet<T> {
+        let iter = iter.map(|k| (k, ()));
         let map = BTreeMap::bulk_build_from_sorted_iter(iter);
         BTreeSet { map }
     }
@@ -1094,6 +1107,8 @@ impl<T: Ord> FromIterator<T> for BTreeSet<T> {
 
 #[stable(feature = "std_collections_from_array", since = "1.56.0")]
 impl<T: Ord, const N: usize> From<[T; N]> for BTreeSet<T> {
+    /// Converts a `[T; N]` into a `BTreeSet<T>`.
+    ///
     /// ```
     /// use std::collections::BTreeSet;
     ///
@@ -1249,11 +1264,10 @@ impl<T: Ord + Clone> Sub<&BTreeSet<T>> for &BTreeSet<T> {
     /// let b = BTreeSet::from([3, 4, 5]);
     ///
     /// let result = &a - &b;
-    /// let result_vec: Vec<_> = result.into_iter().collect();
-    /// assert_eq!(result_vec, [1, 2]);
+    /// assert_eq!(result, BTreeSet::from([1, 2]));
     /// ```
     fn sub(self, rhs: &BTreeSet<T>) -> BTreeSet<T> {
-        self.difference(rhs).cloned().collect()
+        BTreeSet::from_sorted_iter(self.difference(rhs).cloned())
     }
 }
 
@@ -1272,11 +1286,10 @@ impl<T: Ord + Clone> BitXor<&BTreeSet<T>> for &BTreeSet<T> {
     /// let b = BTreeSet::from([2, 3, 4]);
     ///
     /// let result = &a ^ &b;
-    /// let result_vec: Vec<_> = result.into_iter().collect();
-    /// assert_eq!(result_vec, [1, 4]);
+    /// assert_eq!(result, BTreeSet::from([1, 4]));
     /// ```
     fn bitxor(self, rhs: &BTreeSet<T>) -> BTreeSet<T> {
-        self.symmetric_difference(rhs).cloned().collect()
+        BTreeSet::from_sorted_iter(self.symmetric_difference(rhs).cloned())
     }
 }
 
@@ -1295,11 +1308,10 @@ impl<T: Ord + Clone> BitAnd<&BTreeSet<T>> for &BTreeSet<T> {
     /// let b = BTreeSet::from([2, 3, 4]);
     ///
     /// let result = &a & &b;
-    /// let result_vec: Vec<_> = result.into_iter().collect();
-    /// assert_eq!(result_vec, [2, 3]);
+    /// assert_eq!(result, BTreeSet::from([2, 3]));
     /// ```
     fn bitand(self, rhs: &BTreeSet<T>) -> BTreeSet<T> {
-        self.intersection(rhs).cloned().collect()
+        BTreeSet::from_sorted_iter(self.intersection(rhs).cloned())
     }
 }
 
@@ -1318,11 +1330,10 @@ impl<T: Ord + Clone> BitOr<&BTreeSet<T>> for &BTreeSet<T> {
     /// let b = BTreeSet::from([3, 4, 5]);
     ///
     /// let result = &a | &b;
-    /// let result_vec: Vec<_> = result.into_iter().collect();
-    /// assert_eq!(result_vec, [1, 2, 3, 4, 5]);
+    /// assert_eq!(result, BTreeSet::from([1, 2, 3, 4, 5]));
     /// ```
     fn bitor(self, rhs: &BTreeSet<T>) -> BTreeSet<T> {
-        self.union(rhs).cloned().collect()
+        BTreeSet::from_sorted_iter(self.union(rhs).cloned())
     }
 }
 
@@ -1534,7 +1545,7 @@ impl<'a, T: Ord> Iterator for SymmetricDifference<'a, T> {
     fn size_hint(&self) -> (usize, Option<usize>) {
         let (a_len, b_len) = self.0.lens();
         // No checked_add, because even if a and b refer to the same set,
-        // and T is an empty type, the storage overhead of sets limits
+        // and T is a zero-sized type, the storage overhead of sets limits
         // the number of elements to less than half the range of usize.
         (0, Some(a_len + b_len))
     }

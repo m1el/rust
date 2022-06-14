@@ -38,15 +38,16 @@ impl GraphIsCyclicCache {
 
 impl<S: serialize::Encoder> serialize::Encodable<S> for GraphIsCyclicCache {
     #[inline]
-    fn encode(&self, s: &mut S) -> Result<(), S::Error> {
-        serialize::Encodable::encode(&(), s)
+    fn encode(&self, s: &mut S) {
+        serialize::Encodable::encode(&(), s);
     }
 }
 
 impl<D: serialize::Decoder> serialize::Decodable<D> for GraphIsCyclicCache {
     #[inline]
-    fn decode(d: &mut D) -> Result<Self, D::Error> {
-        serialize::Decodable::decode(d).map(|_v: ()| Self::new())
+    fn decode(d: &mut D) -> Self {
+        let () = serialize::Decodable::decode(d);
+        Self::new()
     }
 }
 

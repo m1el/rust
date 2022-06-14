@@ -13,7 +13,6 @@ trait TraversesWorld {
         let maybe_room = room.direction_to_room.get(&direction);
         match maybe_room {
             Some(entry) => Ok(entry),
-            //~^ ERROR lifetime mismatch [E0623]
             _ => Err("Direction does not exist in room.")
         }
     }
