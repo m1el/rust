@@ -24,6 +24,7 @@ pub fn check_transmute<'tcx>(
     if result.len() == 0 {
         Ok(())
     } else {
+        /*
         for reject in result.iter() {
             let src_dbg = reject.src
                 .iter().map(|dbg| dbg.ident())
@@ -33,6 +34,7 @@ pub fn check_transmute<'tcx>(
                 .collect::<Vec<_>>();
             println!("Reject: reason={:?}, pos={}, {:?} -> {:?}", reject.reason, reject.pos, src_dbg, dst_dbg);
         }
+        */
         Err(TransmuteError::CheckError(result))
     }
 }

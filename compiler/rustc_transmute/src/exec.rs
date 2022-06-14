@@ -40,10 +40,12 @@ pub struct Execution<'tcx> {
 impl<'tcx> Execution<'tcx> {
     pub fn new(dst: Program<Ty<'tcx>>, mut src: Program<Ty<'tcx>>) -> Self {
         src.extend_to(&dst);
+        /*
         let src_dbg = src.debug.iter().map(|dbg| (dbg.ip(), dbg.ident())).collect::<Vec<_>>();
         let dst_dbg = dst.debug.iter().map(|dbg| (dbg.ip(), dbg.ident())).collect::<Vec<_>>();
         println!("src_dbg = {:?}", src_dbg);
         println!("dst_dbg = {:?}", dst_dbg);
+        */
         Self {
             forks: Vec::new(),
             dst_forks: 0,
