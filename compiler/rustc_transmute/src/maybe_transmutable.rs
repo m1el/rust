@@ -17,7 +17,7 @@ pub fn check_transmute<'tcx>(query: TransmuteQuery<'tcx>) -> Result<(), Transmut
     }
     // println!("dst: {:?}", dst_nfa);
     // println!("src: {:?}", src_nfa);
-    let mut exec = Execution::new(dst_nfa, src_nfa);
+    let mut exec = Execution::new(dst_nfa, src_nfa, assume);
     let result = exec.check();
     if result.len() == 0 {
         Ok(())

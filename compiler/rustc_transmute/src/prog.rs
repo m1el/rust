@@ -1,3 +1,4 @@
+use crate::Assume;
 use crate::debug::DebugEntry;
 use core::fmt::{self, Debug};
 use core::marker::PhantomData;
@@ -104,6 +105,18 @@ pub enum AcceptState<'tcx> {
 impl<'tcx> AcceptState<'tcx> {
     pub fn always(&self) -> bool {
         matches!(self, AcceptState::Always)
+    }
+
+    pub fn with_assume(mut self, assume: Assume) -> Self {
+        use AcceptState::*;
+        if assume.validity {
+            self = match self {
+                MaybeCheckRange(_, _) => Always,
+                old @ _ => old,
+            };
+        }
+
+        self
     }
 }
 

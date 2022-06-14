@@ -6,7 +6,7 @@
 fn test_assume_validity() {
     // if the compiler can assume that the programmer is performing additional validity
     // checks, a transmute from bool to u8 can be sound
-    assert_is_transmutable_assume_validity::<bool, u8>();
+    assert_is_transmutable_assume_validity::<u8, bool>();
 
     // ...but even with validity assumed, the compiler will still reject transmutations
     // that couldn't *possibly* be valid. e.g.: an uninit byte cannot become an initialized byte.
@@ -23,13 +23,11 @@ struct Context;
 fn assert_is_transmutable_assume_validity<Src, Dst>()
 where
     Dst:
-        // Uncomment once visibility checking is implemented:
-        /*
-        + BikeshedIntrinsicFrom<Src, Context, false, false,  true, false>
+        BikeshedIntrinsicFrom<Src, Context, false, false,  true, false>
         + BikeshedIntrinsicFrom<Src, Context,  true, false,  true, false>
         + BikeshedIntrinsicFrom<Src, Context, false,  true,  true, false>
         + BikeshedIntrinsicFrom<Src, Context,  true,  true,  true, false>
-        + */ BikeshedIntrinsicFrom<Src, Context, false, false,  true,  true>
+        + BikeshedIntrinsicFrom<Src, Context, false, false,  true,  true>
         + BikeshedIntrinsicFrom<Src, Context,  true, false,  true,  true>
         + BikeshedIntrinsicFrom<Src, Context, false,  true,  true,  true>
         + BikeshedIntrinsicFrom<Src, Context,  true,  true,  true,  true>

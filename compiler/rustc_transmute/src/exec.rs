@@ -1,3 +1,4 @@
+use crate::Assume;
 use crate::debug::DebugEntry;
 use crate::prog::{AcceptState, InstPtr, LayoutStep, ProgFork, Program};
 use core::ops::ControlFlow;
@@ -36,10 +37,11 @@ pub struct Execution<'tcx> {
     reject: Vec<Reject<'tcx>>,
     dst: Program<'tcx>,
     src: Program<'tcx>,
+    assume: Assume,
 }
 
 impl<'tcx> Execution<'tcx> {
-    pub fn new(dst: Program<'tcx>, mut src: Program<'tcx>) -> Self {
+    pub fn new(dst: Program<'tcx>, mut src: Program<'tcx>, assume: Assume) -> Self {
         src.extend_to(&dst);
         /*
         let src_dbg = src.debug.iter().map(|dbg| (dbg.ip(), dbg.ident())).collect::<Vec<_>>();
@@ -54,6 +56,7 @@ impl<'tcx> Execution<'tcx> {
             reject: Vec::new(),
             dst,
             src,
+            assume,
         }
     }
     fn push_fork(&mut self, dst: ProgFork, src: ProgFork, reason: ForkReason) {
@@ -136,7 +139,7 @@ impl<'tcx> Execution<'tcx> {
                 pop!();
             }
 
-            let accepts = d_byte.accepts(&s_byte);
+            let accepts = d_byte.accepts(&s_byte).with_assume(self.assume);
             let (accepts, fork) =
                 self.src.synthetic_fork(s_ip, accepts, self.dst_forks != 0, &mut self.accept);
 

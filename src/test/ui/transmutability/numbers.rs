@@ -143,7 +143,7 @@ fn assert_is_transmutable_all<Src, Dst>()
 where
     Dst:
         // Uncomment once visibility checking is implemented:
-        /* BikeshedIntrinsicFrom<Src, Context, false, false, false, false>
+        BikeshedIntrinsicFrom<Src, Context, false, false, false, false>
         + BikeshedIntrinsicFrom<Src, Context,  true, false, false, false>
         + BikeshedIntrinsicFrom<Src, Context, false,  true, false, false>
         + BikeshedIntrinsicFrom<Src, Context,  true,  true, false, false>
@@ -151,7 +151,7 @@ where
         + BikeshedIntrinsicFrom<Src, Context,  true, false,  true, false>
         + BikeshedIntrinsicFrom<Src, Context, false,  true,  true, false>
         + BikeshedIntrinsicFrom<Src, Context,  true,  true,  true, false>
-        + */ BikeshedIntrinsicFrom<Src, Context, false, false, false,  true>
+        + BikeshedIntrinsicFrom<Src, Context, false, false, false,  true>
         + BikeshedIntrinsicFrom<Src, Context,  true, false, false,  true>
         + BikeshedIntrinsicFrom<Src, Context, false,  true, false,  true>
         + BikeshedIntrinsicFrom<Src, Context,  true,  true, false,  true>
@@ -172,7 +172,6 @@ where
 trait BikeshedIntrinsicFromAny<Src: ?Sized> {}
 
 // Uncomment once visibility checking is implemented:
-/*
 impl<Src, Dst> BikeshedIntrinsicFromAny<Src> for Dst
 where
     Dst: BikeshedIntrinsicFrom<Src, Context, false, false, false, false>
@@ -192,7 +191,6 @@ impl<Src, Dst> BikeshedIntrinsicFromAny<Src> for Dst
 where
     Dst: BikeshedIntrinsicFrom<Src, Context,  true,  true, false, false>
 {}
-*/
 
 impl<Src, Dst> BikeshedIntrinsicFromAny<Src> for Dst
 where
