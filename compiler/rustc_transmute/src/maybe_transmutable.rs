@@ -1,9 +1,10 @@
+use crate::build::NfaBuilder;
 use crate::nfa::{Byte, Nfa, State, Transition};
 use crate::Answer;
 use crate::{Map, Set};
 
 use rustc_middle::ty::layout::HasTyCtxt;
-use rustc_middle::ty::Ty;
+use rustc_middle::ty::{ParamEnv, Ty};
 use rustc_middle::ty::TyCtxt;
 
 pub fn maybe_transmutable<'tcx>(

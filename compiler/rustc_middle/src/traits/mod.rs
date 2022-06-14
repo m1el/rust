@@ -474,6 +474,38 @@ pub enum SelectionError<'tcx> {
     /// Multiple applicable `impl`s where found. The `DefId`s correspond to
     /// all the `impl`s' Items.
     Ambiguous(Vec<DefId>),
+    /// Safe transmutability is not applicable
+    TransmuteNotSafe(TransmuteNotSafe),
+}
+
+#[derive(Clone, Debug)]
+pub enum TransmuteRejectionReason {
+    NeverReadUninit,
+    NeverReadPrivate,
+    NeverWritePrivate,
+    NeverOutOfRange((u8, u8), (u8, u8)),
+}
+
+#[derive(Clone, Debug)]
+pub struct TransmuteRejection {
+    pub src: DefId,
+    pub src_field: Option<usize>,
+    pub dst: DefId,
+    pub dst_field: Option<usize>,
+    pub reason: TransmuteRejectionReason,
+}
+
+#[derive(Clone, Debug)]
+pub enum TransmuteNotSafe {
+    NonReprC(DefId),
+    NonConcreteType(DefId),
+    Rejected(Vec<TransmuteRejection>),
+}
+
+TrivialTypeFoldableAndLiftImpls! {
+    TransmuteRejection,
+    TransmuteNotSafe,
+    TransmuteRejectionReason,
 }
 
 /// When performing resolution, it is typically the case that there

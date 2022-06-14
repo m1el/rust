@@ -854,6 +854,9 @@ impl<'a, 'tcx> InferCtxtExt<'tcx> for InferCtxt<'a, 'tcx> {
             SelectionError::ErrorReporting => {
                 bug!("ErrorReporting Overflow should not reach `report_selection_err` call")
             }
+            SelectionError::TransmuteNotSafe(_) => {
+                bug!("Transmute error reporting is not implemented")
+            }
         };
 
         self.note_obligation_cause(&mut err, &obligation);

@@ -108,7 +108,7 @@ impl<'tcx> Nfa<'tcx> {
         use rustc_middle::ty::IntTy::*;
         use rustc_middle::ty::TyKind::*;
         use rustc_middle::ty::UintTy::*;
-        use rustc_target::abi::Align;
+        use rustc_target::abi::{Align, Endian};
         use rustc_target::abi::HasDataLayout;
         use std::alloc::Layout;
         use std::iter;
