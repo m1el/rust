@@ -1,24 +1,27 @@
 use crate::debug::DebugEntry;
-use core::fmt;
+use core::fmt::{self, Debug};
 use core::marker::PhantomData;
 
+use rustc_macros::TypeFoldable;
 use rustc_middle::mir::interpret::write_target_uint;
+use rustc_middle::ty::Ty;
+use rustc_middle::TrivialTypeFoldableImpls;
 use rustc_target::abi::Endian;
 
 pub type InstPtr = u32;
 
 #[derive(Clone)]
-pub enum Inst<R: Clone> {
+pub enum Inst<'tcx> {
     Accept,
     Uninit,
-    Ref(InstRef<R>),
+    Ref(InstRef<'tcx>),
     RefTail,
     ByteRange(InstByteRange),
     Split(InstSplit),
     JoinGoto(InstPtr),
 }
 
-impl<R: Clone> fmt::Debug for Inst<R> {
+impl<'tcx> fmt::Debug for Inst<'tcx> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         use Inst::*;
         match self {
@@ -59,7 +62,7 @@ impl<R: Clone> fmt::Debug for Inst<R> {
     }
 }
 
-impl<R: Clone> Inst<R> {
+impl<'tcx> Inst<'tcx> {
     pub fn new_invalid_split() -> Self {
         Inst::Split(InstSplit { alternate: InstPtr::MAX })
     }
@@ -84,8 +87,8 @@ impl<R: Clone> Inst<R> {
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum AcceptState<R> {
+#[derive(Clone, Debug, TypeFoldable)]
+pub enum AcceptState<'tcx> {
     Always,
     NeverReadUninit,
     NeverReadPrivate,
@@ -93,22 +96,22 @@ pub enum AcceptState<R> {
     NeverOutOfRange(RangeInclusive, RangeInclusive),
     NeverUnreachable,
     MaybeCheckRange(RangeInclusive, RangeInclusive),
-    MaybeCheckRef(R, R),
+    MaybeCheckRef(Ty<'tcx>, Ty<'tcx>),
     NeverReadRef,
     NeverWriteRef,
 }
 
-impl<R> AcceptState<R> {
+impl<'tcx> AcceptState<'tcx> {
     pub fn always(&self) -> bool {
         matches!(self, AcceptState::Always)
     }
 }
 
 #[derive(Debug, Clone)]
-pub enum StepByte<R: Clone> {
+pub enum StepByte<'tcx> {
     Uninit,
     ByteRange(bool, RangeInclusive),
-    RefHead(InstRef<R>),
+    RefHead(InstRef<'tcx>),
     RefTail,
 }
 
@@ -117,6 +120,8 @@ pub struct RangeInclusive {
     pub start: u8,
     pub end: u8,
 }
+
+TrivialTypeFoldableImpls! { RangeInclusive, }
 
 impl core::convert::From<core::ops::RangeInclusive<u8>> for RangeInclusive {
     fn from(src: core::ops::RangeInclusive<u8>) -> Self {
@@ -132,8 +137,8 @@ impl RangeInclusive {
     }
 }
 
-impl<R: Clone> StepByte<R> {
-    pub fn accepts(&self, source: &StepByte<R>) -> AcceptState<R> {
+impl<'tcx> StepByte<'tcx> {
+    pub fn accepts(&self, source: &StepByte<'tcx>) -> AcceptState<'tcx> {
         use AcceptState::*;
         use StepByte::*;
         match (self, source) {
@@ -169,24 +174,24 @@ pub struct ProgFork {
     pos: usize,
 }
 
-pub enum LayoutStep<R: Clone> {
-    Byte { ip: InstPtr, pos: usize, byte: StepByte<R> },
+pub enum LayoutStep<'tcx> {
+    Byte { ip: InstPtr, pos: usize, byte: StepByte<'tcx> },
     Fork(ProgFork),
 }
 
-pub struct Program<R: Clone> {
-    pub insts: Vec<Inst<R>>,
-    pub debug: Vec<DebugEntry<R>>,
+pub struct Program<'tcx> {
+    pub insts: Vec<Inst<'tcx>>,
+    pub debug: Vec<DebugEntry<'tcx>>,
     size: usize,
     ip: InstPtr,
     pos: usize,
     sforks: usize,
     took_fork: Option<InstPtr>,
-    current: Option<LayoutStep<R>>,
+    current: Option<LayoutStep<'tcx>>,
 }
 
-impl<R: Clone> Program<R> {
-    pub fn new(insts: Vec<Inst<R>>, debug: Vec<DebugEntry<R>>, size: usize) -> Self {
+impl<'tcx> Program<'tcx> {
+    pub fn new(insts: Vec<Inst<'tcx>>, debug: Vec<DebugEntry<'tcx>>, size: usize) -> Self {
         Self { insts, debug, size, ip: 0, pos: 0, sforks: 0, took_fork: None, current: None }
     }
 
@@ -212,7 +217,7 @@ impl<R: Clone> Program<R> {
         &self,
         dst: &mut W,
         name: &str,
-        accepts: Option<&[AcceptState<R>]>,
+        accepts: Option<&[AcceptState<'tcx>]>,
     ) -> std::io::Result<()> {
         let mut pos = 0;
         let mut ip = 0;
@@ -321,7 +326,7 @@ impl<R: Clone> Program<R> {
         Ok(())
     }
 
-    pub fn accept_state(&self, start: usize) -> impl Iterator<Item = AcceptState<R>> + '_ {
+    pub fn accept_state(&self, start: usize) -> impl Iterator<Item = AcceptState<'tcx>> + '_ {
         self.insts[start..].iter().map(|inst| match inst {
             Inst::Split(_) | Inst::JoinGoto(_) | Inst::Accept => AcceptState::Always,
             _ => AcceptState::NeverUnreachable,
@@ -331,10 +336,10 @@ impl<R: Clone> Program<R> {
     pub fn synthetic_fork(
         &mut self,
         ip: InstPtr,
-        accepts: AcceptState<R>,
+        accepts: AcceptState<'tcx>,
         can_fork: bool,
-        marks: &mut Vec<AcceptState<R>>,
-    ) -> (AcceptState<R>, Option<ProgFork>) {
+        marks: &mut Vec<AcceptState<'tcx>>,
+    ) -> (AcceptState<'tcx>, Option<ProgFork>) {
         let original = accepts.clone();
         let (dst, src) = match accepts {
             AcceptState::MaybeCheckRange(dst, src) => (dst, src),
@@ -458,7 +463,7 @@ impl<R: Clone> Program<R> {
         }
     }
 
-    pub fn next(&mut self) -> Option<LayoutStep<R>> {
+    pub fn next(&mut self) -> Option<LayoutStep<'tcx>> {
         if self.current.is_none() {
             self.advance();
         }
@@ -530,7 +535,7 @@ impl<R: Clone> Program<R> {
     }
 
     #[allow(dead_code)]
-    pub fn resolve_debug(&self, ip: InstPtr) -> Vec<DebugEntry<R>> {
+    pub fn resolve_debug(&self, ip: InstPtr) -> Vec<DebugEntry<'tcx>> {
         let mut result = Vec::new();
         let seek = |ip| match self.debug.binary_search_by(|entry| entry.ip().cmp(&ip)) {
             Ok(idx) => &self.debug[idx],
@@ -562,7 +567,7 @@ impl<R: Clone> Program<R> {
     }
 }
 
-impl<R: Clone> fmt::Debug for Program<R> {
+impl<'tcx> fmt::Debug for Program<'tcx> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "FiniteAutomaton {{")?;
         for (idx, inst) in self.insts.iter().enumerate() {
@@ -576,15 +581,15 @@ impl<R: Clone> fmt::Debug for Program<R> {
 pub type RefKind = rustc_hir::Mutability;
 
 #[derive(Clone)]
-pub struct InstRef<R> {
+pub struct InstRef<'tcx> {
     pub ref_kind: RefKind,
     pub is_ptr: bool,
-    pub ty: R,
+    pub ty: Ty<'tcx>,
     pub data_size: u32,
     pub data_align: u32,
 }
 
-impl<R> fmt::Debug for InstRef<R> {
+impl<'tcx> fmt::Debug for InstRef<'tcx> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let ref_kind = match &self.ref_kind {
             RefKind::Mut => "Unique",
@@ -611,12 +616,12 @@ pub struct InstByte {
 }
 
 impl InstByte {
-    pub fn for_literal<R: Clone>(
+    pub fn for_literal<'tcx>(
         endian: Endian,
         size: usize,
         value: u128,
         private: bool,
-    ) -> impl Iterator<Item = Inst<R>> {
+    ) -> impl Iterator<Item = Inst<'tcx>> {
         let mut data = [0_u8; 16];
         let start = data.len() - size;
         write_target_uint(endian, &mut data[start..], value)
@@ -625,15 +630,15 @@ impl InstByte {
     }
 }
 
-struct LiteralBytes<R: Clone> {
+struct LiteralBytes<'tcx> {
     data: [u8; 16],
     private: bool,
     pos: usize,
-    _marker: PhantomData<R>,
+    _marker: PhantomData<&'tcx ()>,
 }
 
-impl<R: Clone> Iterator for LiteralBytes<R> {
-    type Item = Inst<R>;
+impl<'tcx> Iterator for LiteralBytes<'tcx> {
+    type Item = Inst<'tcx>;
     fn next(&mut self) -> Option<Self::Item> {
         let byte = *self.data.get(self.pos)?;
         let range = (byte..=byte).into();

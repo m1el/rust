@@ -1,7 +1,7 @@
 use crate::debug::DebugEntry;
 use crate::prog::{AcceptState, InstPtr, LayoutStep, ProgFork, Program};
 use core::ops::ControlFlow;
-use rustc_middle::ty::Ty;
+use rustc_macros::TypeFoldable;
 
 enum ForkReason {
     Src,
@@ -14,31 +14,32 @@ struct ExecFork {
     reason: ForkReason,
 }
 
-struct Reject<R: Clone> {
+struct Reject<'tcx> {
     src: InstPtr,
     dst: InstPtr,
     pos: usize,
-    reason: AcceptState<R>,
+    reason: AcceptState<'tcx>,
 }
 
-pub struct RejectFull<R: Clone> {
-    pub src: Vec<DebugEntry<R>>,
-    pub dst: Vec<DebugEntry<R>>,
+#[derive(Clone, Debug, TypeFoldable)]
+pub struct RejectFull<'tcx> {
+    pub src: Vec<DebugEntry<'tcx>>,
+    pub dst: Vec<DebugEntry<'tcx>>,
     pub pos: usize,
-    pub reason: AcceptState<R>,
+    pub reason: AcceptState<'tcx>,
 }
 
-pub struct Execution<R: Clone> {
+pub struct Execution<'tcx> {
     forks: Vec<ExecFork>,
     dst_forks: usize,
-    accept: Vec<AcceptState<R>>,
-    reject: Vec<Reject<R>>,
-    dst: Program<R>,
-    src: Program<R>,
+    accept: Vec<AcceptState<'tcx>>,
+    reject: Vec<Reject<'tcx>>,
+    dst: Program<'tcx>,
+    src: Program<'tcx>,
 }
 
-impl<'tcx> Execution<Ty<'tcx>> {
-    pub fn new(dst: Program<Ty<'tcx>>, mut src: Program<Ty<'tcx>>) -> Self {
+impl<'tcx> Execution<'tcx> {
+    pub fn new(dst: Program<'tcx>, mut src: Program<'tcx>) -> Self {
         src.extend_to(&dst);
         /*
         let src_dbg = src.debug.iter().map(|dbg| (dbg.ip(), dbg.ident())).collect::<Vec<_>>();
@@ -55,9 +56,6 @@ impl<'tcx> Execution<Ty<'tcx>> {
             src,
         }
     }
-}
-
-impl<R: Clone> Execution<R> {
     fn push_fork(&mut self, dst: ProgFork, src: ProgFork, reason: ForkReason) {
         self.dst_forks += matches!(reason, ForkReason::Dst) as usize;
         self.forks.push(ExecFork { src, dst, reason });
@@ -93,7 +91,7 @@ impl<R: Clone> Execution<R> {
         if success { Ok(()) } else { Err("failed to run dot".into()) }
     }
 
-    pub fn check(&mut self) -> Vec<RejectFull<R>> {
+    pub fn check(&mut self) -> Vec<RejectFull<'tcx>> {
         'outer: loop {
             macro_rules! pop {
                 () => {

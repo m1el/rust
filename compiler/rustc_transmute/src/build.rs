@@ -1,24 +1,27 @@
 //! Build NFA describing a given type
 
-use core::alloc::{Layout, LayoutError};
+use core::alloc::Layout;
 use core::iter::repeat_with;
 
 use crate::debug::DebugEntry;
 use crate::prog::*;
+use crate::TransmuteError;
 
+// use rustc_macros::TypeFoldable;
 use rustc_middle::ty::TyCtxt;
 use rustc_middle::ty::{subst::SubstsRef, AdtDef, FieldDef, Ty, VariantDef};
+use rustc_span::def_id::DefId;
 
-type Result<'tcx, T = ()> = core::result::Result<T, BuilderError<'tcx>>;
+type TResult<'tcx, T = ()> = core::result::Result<T, TransmuteError<'tcx>>;
 
-fn layout_of<'tcx>(ctx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Result<'tcx, Layout> {
+fn layout_of<'tcx>(ctx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> TResult<'tcx, Layout> {
     use rustc_middle::ty::{ParamEnv, ParamEnvAnd};
     use rustc_target::abi::TyAndLayout;
 
     let param_env = ParamEnv::reveal_all();
     let param_env_and_type = ParamEnvAnd { param_env, value: ty };
     let TyAndLayout { layout, .. } =
-        ctx.layout_of(param_env_and_type).map_err(|_| BuilderError::LayoutOverflow)?;
+        ctx.layout_of(param_env_and_type).map_err(|_| TransmuteError::LayoutOverflow)?;
     let layout = Layout::from_size_align(
         layout.size().bytes_usize(),
         layout.align().abi.bytes().try_into().unwrap(),
@@ -26,51 +29,45 @@ fn layout_of<'tcx>(ctx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Result<'tcx, Layout> {
     Ok(layout)
 }
 
-pub enum BuilderError<'tcx> {
-    NonReprC(Ty<'tcx>),
-    TuplesNonReprC(Ty<'tcx>),
-    TypeNotSupported(Ty<'tcx>),
-    LayoutOverflow,
-    NfaTooLarge,
-}
-
-impl<'a> core::convert::From<LayoutError> for BuilderError<'a> {
-    fn from(_err: LayoutError) -> Self {
-        BuilderError::LayoutOverflow
-    }
-}
-
 const MAX_NFA_SIZE: usize = u32::max_value() as usize;
 
 pub struct NfaBuilder<'tcx> {
     pub layout: Layout,
-    pub insts: Vec<Inst<Ty<'tcx>>>,
+    pub insts: Vec<Inst<'tcx>>,
     pub priv_depth: usize,
-    pub debug: Vec<DebugEntry<Ty<'tcx>>>,
+    pub debug: Vec<DebugEntry<'tcx>>,
     pub debug_parent: usize,
     pub tcx: TyCtxt<'tcx>,
-    pub scope: Ty<'tcx>,
+    pub module: DefId,
 }
 
 impl<'tcx> NfaBuilder<'tcx> {
-    pub fn new(tcx: TyCtxt<'tcx>, scope: Ty<'tcx>) -> Self {
-        Self {
+    pub fn new(tcx: TyCtxt<'tcx>, scope: Ty<'tcx>) -> TResult<'tcx, Self> {
+        use rustc_type_ir::TyKind;
+        let module = if let TyKind::Adt(adt_def, ..) = scope.kind() {
+            use rustc_middle::ty::DefIdTree;
+            tcx.parent(adt_def.did())
+        } else {
+            return Err(TransmuteError::ImproperContextParameter);
+        };
+
+        Ok(Self {
             layout: Layout::from_size_align(0, 1).expect("This layout should always succeed"),
             insts: Vec::new(),
             priv_depth: 0,
             debug: Vec::new(),
             debug_parent: 0,
             tcx,
-            scope,
-        }
+            module,
+        })
     }
 
     pub fn build_ty(
         tcx: TyCtxt<'tcx>,
         scope: Ty<'tcx>,
         ty: Ty<'tcx>,
-    ) -> Result<'tcx, Program<Ty<'tcx>>> {
-        let mut builder = Self::new(tcx, scope);
+    ) -> TResult<'tcx, Program<'tcx>> {
+        let mut builder = Self::new(tcx, scope)?;
 
         builder.debug.push(DebugEntry::Root { ip: 0, ty });
         builder.debug_parent = 0;
@@ -82,7 +79,7 @@ impl<'tcx> NfaBuilder<'tcx> {
 
     fn debug_enter<F>(&mut self, f: F)
     where
-        F: Fn(InstPtr, usize) -> DebugEntry<Ty<'tcx>>,
+        F: Fn(InstPtr, usize) -> DebugEntry<'tcx>,
     {
         let ip = self.insts.len() as InstPtr;
         let parent = self.debug_parent;
@@ -96,7 +93,7 @@ impl<'tcx> NfaBuilder<'tcx> {
         self.debug_parent = parent;
     }
 
-    fn extend_from_ty(&mut self, ty: Ty<'tcx>) -> Result<'tcx> {
+    fn extend_from_ty(&mut self, ty: Ty<'tcx>) -> TResult<'tcx> {
         use rustc_middle::ty::ParamEnv;
         use rustc_type_ir::TyKind::*;
 
@@ -128,7 +125,7 @@ impl<'tcx> NfaBuilder<'tcx> {
             Tuple(list) => match list.len() {
                 0 => Ok(()),
                 1 => self.extend_from_ty(list[0]),
-                _ => Err(BuilderError::TuplesNonReprC(ty)),
+                _ => Err(TransmuteError::TuplesNonReprC(ty)),
             },
 
             Adt(adt_def, substs_ref) => {
@@ -182,8 +179,12 @@ impl<'tcx> NfaBuilder<'tcx> {
                 Ok(())
             }
 
-            _ => Err(BuilderError::TypeNotSupported(ty)),
+            _ => Err(TransmuteError::TypeNotSupported(ty)),
         }
+    }
+
+    fn is_visible(&self, def_id: DefId) -> bool {
+        self.tcx.visibility(def_id).is_accessible_from(self.module, self.tcx)
     }
 
     fn extend_struct(
@@ -191,13 +192,13 @@ impl<'tcx> NfaBuilder<'tcx> {
         ty: Ty<'tcx>,
         adt_def: AdtDef<'tcx>,
         substs_ref: SubstsRef<'tcx>,
-    ) -> Result<'tcx> {
+    ) -> TResult<'tcx> {
         let tcx = self.tcx;
         let layout = layout_of(self.tcx, ty)?;
         let repr = adt_def.repr();
         // is the layout well-defined?
         if !repr.c() {
-            return Err(BuilderError::NonReprC(ty));
+            return Err(TransmuteError::NonReprC(ty));
         }
 
         self.debug_enter(|ip, parent| DebugEntry::EnterStruct { ip, parent, ty });
@@ -216,7 +217,7 @@ impl<'tcx> NfaBuilder<'tcx> {
             assert!(field_layout.align() <= layout.align(), "Field align must fit struct align");
             self.pad_to_align(field_layout.align())?;
 
-            let private = !field_def.vis.is_public();
+            let private = !self.is_visible(field_def.did);
             self.priv_depth += private as usize;
             self.extend_from_ty(field_ty)?;
             self.priv_depth -= private as usize;
@@ -234,7 +235,7 @@ impl<'tcx> NfaBuilder<'tcx> {
         ty: Ty<'tcx>,
         adt_def: AdtDef<'tcx>,
         substs: SubstsRef<'tcx>,
-    ) -> Result<'tcx> {
+    ) -> TResult<'tcx> {
         use rustc_index::vec::Idx;
         use rustc_target::abi::VariantIdx;
 
@@ -242,7 +243,7 @@ impl<'tcx> NfaBuilder<'tcx> {
         let layout = layout_of(self.tcx, ty)?;
         let repr = adt_def.repr();
         if !repr.c() || adt_def.variants().len() < 1 {
-            return Err(BuilderError::NonReprC(ty));
+            return Err(TransmuteError::NonReprC(ty));
         }
         self.debug_enter(|ip, parent| DebugEntry::EnterEnum { ip, parent, ty });
 
@@ -297,7 +298,7 @@ impl<'tcx> NfaBuilder<'tcx> {
         discr: u128,
         index: usize,
         variant: &'tcx VariantDef,
-    ) -> Result<'tcx> {
+    ) -> TResult<'tcx> {
         use rustc_target::abi::HasDataLayout;
         let endian = self.tcx.data_layout().endian;
 
@@ -311,7 +312,7 @@ impl<'tcx> NfaBuilder<'tcx> {
         let private = self.priv_depth > 0;
         let tag = InstByte::for_literal(endian, tag_layout.size(), discr, private);
         self.insts.extend(tag);
-        self.layout = self.layout.extend(tag_layout).map_err(|_| BuilderError::LayoutOverflow)?.0;
+        self.layout = self.layout.extend(tag_layout).map_err(|_| TransmuteError::LayoutOverflow)?.0;
         self.pad_to_align(layout.align())?;
         for (index, field) in variant.fields.iter().enumerate() {
             let ty = field.ty(self.tcx, substs);
@@ -335,7 +336,7 @@ impl<'tcx> NfaBuilder<'tcx> {
         ty: Ty<'tcx>,
         adt_def: AdtDef<'tcx>,
         substs: SubstsRef<'tcx>,
-    ) -> Result<'tcx> {
+    ) -> TResult<'tcx> {
         use rustc_index::vec::Idx;
         use rustc_target::abi::VariantIdx;
         let layout = layout_of(self.tcx, ty)?;
@@ -343,7 +344,7 @@ impl<'tcx> NfaBuilder<'tcx> {
         assert!(adt_def.variants().len() == 1, "Unions must have one variant");
         let all_fields = &adt_def.variant(VariantIdx::new(0)).fields;
         if !repr.c() || all_fields.len() < 1 {
-            return Err(BuilderError::NonReprC(ty));
+            return Err(TransmuteError::NonReprC(ty));
         }
         self.debug_enter(|ip, parent| DebugEntry::EnterUnion { ip, parent, ty });
 
@@ -392,7 +393,7 @@ impl<'tcx> NfaBuilder<'tcx> {
         substs: SubstsRef<'tcx>,
         index: usize,
         field: &'tcx FieldDef,
-    ) -> Result<'tcx> {
+    ) -> TResult<'tcx> {
         let ty = field.ty(self.tcx, substs);
         self.debug_enter(|ip, parent| DebugEntry::EnterUnionVariant {
             ip,
@@ -405,7 +406,7 @@ impl<'tcx> NfaBuilder<'tcx> {
         let ty_layout = layout_of(self.tcx, ty)?;
         assert!(ty_layout.align() <= layout.align(), "Union field align must fit parent align");
 
-        let private = !field.vis.is_public();
+        let private = !self.is_visible(field.did);
         self.priv_depth += private as usize;
         self.extend_from_ty(ty)?;
         self.priv_depth -= private as usize;
@@ -415,30 +416,30 @@ impl<'tcx> NfaBuilder<'tcx> {
         Ok(())
     }
 
-    fn push_split(&mut self) -> Result<'tcx, usize> {
+    fn push_split(&mut self) -> TResult<'tcx, usize> {
         let ip = self.insts.len();
         self.push(Inst::new_invalid_split())?;
         Ok(ip)
     }
 
-    fn push_goto(&mut self) -> Result<'tcx, usize> {
+    fn push_goto(&mut self) -> TResult<'tcx, usize> {
         let ip = self.insts.len();
         self.push(Inst::new_invalid_goto())?;
         Ok(ip)
     }
 
-    fn push(&mut self, inst: Inst<Ty<'tcx>>) -> Result<'tcx> {
+    fn push(&mut self, inst: Inst<'tcx>) -> TResult<'tcx> {
         if self.insts.len() >= MAX_NFA_SIZE {
-            Err(BuilderError::NfaTooLarge)
+            Err(TransmuteError::NfaTooLarge)
         } else {
             self.insts.push(inst);
             Ok(())
         }
     }
 
-    fn extend<I>(&mut self, it: I) -> Result<'tcx>
+    fn extend<I>(&mut self, it: I) -> TResult<'tcx>
     where
-        I: Iterator<Item = Inst<Ty<'tcx>>>,
+        I: Iterator<Item = Inst<'tcx>>,
     {
         for item in it {
             self.push(item)?;
@@ -446,7 +447,7 @@ impl<'tcx> NfaBuilder<'tcx> {
         Ok(())
     }
 
-    fn pad(&mut self, padding: usize) -> Result<'tcx> {
+    fn pad(&mut self, padding: usize) -> TResult<'tcx> {
         if padding == 0 {
             return Ok(());
         }
@@ -456,25 +457,25 @@ impl<'tcx> NfaBuilder<'tcx> {
 
         // println!("i:{}, padding: {}, layout: {:?}", self.insts.len(), padding, self.layout);
         let padding_layout =
-            Layout::from_size_align(padding, 1).map_err(|_| BuilderError::LayoutOverflow)?;
+            Layout::from_size_align(padding, 1).map_err(|_| TransmuteError::LayoutOverflow)?;
         self.layout =
-            self.layout.extend(padding_layout).map_err(|_| BuilderError::LayoutOverflow)?.0;
+            self.layout.extend(padding_layout).map_err(|_| TransmuteError::LayoutOverflow)?.0;
 
         self.extend(repeat_with(|| Inst::Uninit).take(padding))
     }
 
-    fn pad_to_align(&mut self, align: usize) -> Result<'tcx> {
+    fn pad_to_align(&mut self, align: usize) -> TResult<'tcx> {
         let padding = self.layout.padding_needed_for(align);
         self.pad(padding)
     }
 
-    fn number(&mut self, size: usize, layout: Layout) -> Result<'tcx> {
+    fn number(&mut self, size: usize, layout: Layout) -> TResult<'tcx> {
         self.repeat_byte(size, (0..=255).into())?;
         self.layout = self.layout.extend(layout)?.0;
         Ok(())
     }
 
-    fn repeat_byte(&mut self, size: usize, byte_ranges: RangeInclusive) -> Result<'tcx> {
+    fn repeat_byte(&mut self, size: usize, byte_ranges: RangeInclusive) -> TResult<'tcx> {
         let private = self.priv_depth > 0;
         self.extend(
             repeat_with(|| {

@@ -1,11 +1,11 @@
 #![feature(alloc_layout_extra, control_flow_enum, iterator_try_reduce)]
+use core::alloc::LayoutError;
 //#![allow(unused_imports, dead_code, unused_variables)]
 // use rustc_infer::infer::InferCtxt;
-// use rustc_macros::TypeFoldable;
+use rustc_macros::TypeFoldable;
 // use rustc_middle::traits::ObligationCause;
 // use rustc_middle::ty::Binder;
 use rustc_middle::ty::{Ty, TyCtxt};
-
 // pub(crate) use rustc_data_structures::fx::FxHashMap as Map;
 // pub(crate) use rustc_data_structures::fx::FxHashSet as Set;
 
@@ -16,17 +16,22 @@ mod maybe_transmutable;
 mod prog;
 
 pub use crate::exec::RejectFull;
-pub use build::BuilderError;
 pub use debug::DebugEntry;
 
+#[derive(Clone, Debug, TypeFoldable)]
 pub enum TransmuteError<'tcx> {
-    BuilderError(BuilderError<'tcx>),
-    CheckError(Vec<RejectFull<Ty<'tcx>>>),
+    NonReprC(Ty<'tcx>),
+    TuplesNonReprC(Ty<'tcx>),
+    TypeNotSupported(Ty<'tcx>),
+    ImproperContextParameter,
+    LayoutOverflow,
+    NfaTooLarge,
+    CheckError(Vec<RejectFull<'tcx>>),
 }
 
-impl<'tcx> core::convert::From<BuilderError<'tcx>> for TransmuteError<'tcx> {
-    fn from(err: BuilderError<'tcx>) -> Self {
-        TransmuteError::BuilderError(err)
+impl<'a> core::convert::From<LayoutError> for TransmuteError<'a> {
+    fn from(_err: LayoutError) -> Self {
+        TransmuteError::LayoutOverflow
     }
 }
 

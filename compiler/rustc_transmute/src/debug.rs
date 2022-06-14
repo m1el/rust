@@ -1,26 +1,30 @@
-use crate::prog::InstPtr;
+use core::fmt::Debug;
 use rustc_hir::Mutability;
+use rustc_macros::TypeFoldable;
+use rustc_middle::ty::Ty;
 use rustc_span::def_id::DefId;
 
-#[derive(Clone)]
-pub enum DebugEntry<R: Clone> {
-    Root { ip: InstPtr, ty: R },
-    EnterStruct { ip: InstPtr, parent: usize, ty: R },
-    EnterStructField { ip: InstPtr, parent: usize, ty: R, def_id: DefId, index: usize },
-    EnterEnum { ip: InstPtr, parent: usize, ty: R },
+use crate::prog::InstPtr;
+
+#[derive(Clone, Debug, TypeFoldable)]
+pub enum DebugEntry<'tcx> {
+    Root { ip: InstPtr, ty: Ty<'tcx> },
+    EnterStruct { ip: InstPtr, parent: usize, ty: Ty<'tcx> },
+    EnterStructField { ip: InstPtr, parent: usize, ty: Ty<'tcx>, def_id: DefId, index: usize },
+    EnterEnum { ip: InstPtr, parent: usize, ty: Ty<'tcx> },
     EnterEnumTag { ip: InstPtr, parent: usize },
     EnterEnumVariant { ip: InstPtr, parent: usize, def_id: DefId, index: usize },
-    EnterEnumVariantField { ip: InstPtr, parent: usize, ty: R, def_id: DefId, index: usize },
-    EnterUnion { ip: InstPtr, parent: usize, ty: R },
-    EnterUnionVariant { ip: InstPtr, parent: usize, ty: R, def_id: DefId, index: usize },
-    EnterArray { ip: InstPtr, parent: usize, ty: R },
-    EnterPtr { ip: InstPtr, parent: usize, ty: R, mutbl: Mutability },
-    EnterRef { ip: InstPtr, parent: usize, ty: R, mutbl: Mutability },
+    EnterEnumVariantField { ip: InstPtr, parent: usize, ty: Ty<'tcx>, def_id: DefId, index: usize },
+    EnterUnion { ip: InstPtr, parent: usize, ty: Ty<'tcx> },
+    EnterUnionVariant { ip: InstPtr, parent: usize, ty: Ty<'tcx>, def_id: DefId, index: usize },
+    EnterArray { ip: InstPtr, parent: usize, ty: Ty<'tcx> },
+    EnterPtr { ip: InstPtr, parent: usize, ty: Ty<'tcx>, mutbl: Mutability },
+    EnterRef { ip: InstPtr, parent: usize, ty: Ty<'tcx>, mutbl: Mutability },
     EnterFork { ip: InstPtr, offset: InstPtr },
     Padding { ip: InstPtr, parent: usize },
 }
 
-impl<R: Clone> DebugEntry<R> {
+impl<'tcx> DebugEntry<'tcx> {
     pub fn ip(&self) -> InstPtr {
         use DebugEntry::*;
         match self {
