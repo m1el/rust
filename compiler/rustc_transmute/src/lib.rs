@@ -15,9 +15,9 @@ mod exec;
 mod maybe_transmutable;
 mod prog;
 
+pub use crate::exec::RejectFull;
 pub use build::BuilderError;
 pub use debug::DebugEntry;
-pub use crate::exec::RejectFull;
 
 pub enum TransmuteError<'tcx> {
     BuilderError(BuilderError<'tcx>),

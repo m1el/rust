@@ -1,5 +1,5 @@
-use crate::prog::{AcceptState, InstPtr, LayoutStep, ProgFork, Program};
 use crate::debug::DebugEntry;
+use crate::prog::{AcceptState, InstPtr, LayoutStep, ProgFork, Program};
 use core::ops::ControlFlow;
 use rustc_middle::ty::Ty;
 
@@ -73,16 +73,14 @@ impl<R: Clone> Execution<R> {
         }
     }
 
-    #[cfg(feature="print_dot")]
+    #[cfg(feature = "print_dot")]
     fn print_dot(&self) -> Result<(), Box<dyn std::error::Error>> {
-        use std::process::Command;
         use std::fs::OpenOptions;
         use std::io::Write;
+        use std::process::Command;
 
-        let mut file = OpenOptions::new()
-            .create(true).truncate(true)
-            .write(true)
-            .open("graph.dot")?;
+        let mut file =
+            OpenOptions::new().create(true).truncate(true).write(true).open("graph.dot")?;
 
         writeln!(file, "digraph q {{")?;
         self.dst.print_dot(&mut file, "dst", None)?;
@@ -90,15 +88,9 @@ impl<R: Clone> Execution<R> {
         writeln!(file, "}}")?;
         core::mem::drop(file);
 
-        let success = Command::new("dot")
-                .args(["-Tsvg", "-O", "graph.dot"])
-                .status()?.success();
+        let success = Command::new("dot").args(["-Tsvg", "-O", "graph.dot"]).status()?.success();
 
-        if success {
-            Ok(())
-        } else {
-            Err("failed to run dot".into())
-        }
+        if success { Ok(()) } else { Err("failed to run dot".into()) }
     }
 
     pub fn check(&mut self) -> Vec<RejectFull<R>> {
@@ -157,17 +149,13 @@ impl<R: Clone> Execution<R> {
             }
 
             if !accepts.always() {
-                self.reject.push(Reject {
-                    src: s_ip,
-                    dst: d_ip,
-                    pos,
-                    reason: accepts
-                });
+                self.reject.push(Reject { src: s_ip, dst: d_ip, pos, reason: accepts });
                 pop!();
             }
         }
 
-        self.reject.drain(..)
+        self.reject
+            .drain(..)
             .filter(|rej| !self.accept[rej.src as usize].always())
             .map(|rej| RejectFull {
                 src: self.src.resolve_debug(rej.src),

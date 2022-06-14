@@ -207,7 +207,7 @@ impl<R: Clone> Program<R> {
         self.insts.push(Inst::Accept);
     }
 
-    #[cfg(feature="print_dot")]
+    #[cfg(feature = "print_dot")]
     pub fn print_dot<W: std::io::Write>(
         &self,
         dst: &mut W,
@@ -545,14 +545,13 @@ impl<R: Clone> Program<R> {
                     break;
                 }
                 DebugEntry::EnterFork { offset, .. } => {
-                    let parent_ip = ip.checked_sub(*offset)
-                        .expect("Debug entry for fork is invalid");
+                    let parent_ip =
+                        ip.checked_sub(*offset).expect("Debug entry for fork is invalid");
                     tail = seek(parent_ip);
                 }
                 _ => {
                     result.push(tail.clone());
-                    let parent = tail.parent_id()
-                        .expect("Should not be root or fork");
+                    let parent = tail.parent_id().expect("Should not be root or fork");
                     tail = &self.debug[parent];
                 }
             }

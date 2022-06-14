@@ -7,7 +7,7 @@ use crate::debug::DebugEntry;
 use crate::prog::*;
 
 use rustc_middle::ty::TyCtxt;
-use rustc_middle::ty::{subst::SubstsRef, AdtDef, Ty, FieldDef, VariantDef};
+use rustc_middle::ty::{subst::SubstsRef, AdtDef, FieldDef, Ty, VariantDef};
 
 type Result<'tcx, T = ()> = core::result::Result<T, BuilderError<'tcx>>;
 
@@ -17,8 +17,8 @@ fn layout_of<'tcx>(ctx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Result<'tcx, Layout> {
 
     let param_env = ParamEnv::reveal_all();
     let param_env_and_type = ParamEnvAnd { param_env, value: ty };
-    let TyAndLayout { layout, .. } = ctx.layout_of(param_env_and_type)
-        .map_err(|_| BuilderError::LayoutOverflow)?;
+    let TyAndLayout { layout, .. } =
+        ctx.layout_of(param_env_and_type).map_err(|_| BuilderError::LayoutOverflow)?;
     let layout = Layout::from_size_align(
         layout.size().bytes_usize(),
         layout.align().abi.bytes().try_into().unwrap(),
@@ -55,8 +55,7 @@ pub struct NfaBuilder<'tcx> {
 impl<'tcx> NfaBuilder<'tcx> {
     pub fn new(tcx: TyCtxt<'tcx>, scope: Ty<'tcx>) -> Self {
         Self {
-            layout: Layout::from_size_align(0, 1)
-                .expect("This layout should always succeed"),
+            layout: Layout::from_size_align(0, 1).expect("This layout should always succeed"),
             insts: Vec::new(),
             priv_depth: 0,
             debug: Vec::new(),
@@ -92,8 +91,8 @@ impl<'tcx> NfaBuilder<'tcx> {
     }
 
     fn debug_exit(&mut self) {
-        let parent = self.debug[self.debug_parent].parent_id()
-            .expect("debug_exit on root is invalid");
+        let parent =
+            self.debug[self.debug_parent].parent_id().expect("debug_exit on root is invalid");
         self.debug_parent = parent;
     }
 
@@ -126,13 +125,11 @@ impl<'tcx> NfaBuilder<'tcx> {
                 Ok(())
             }
 
-            Tuple(list) => {
-                match list.len() {
-                    0 => Ok(()),
-                    1 => self.extend_from_ty(list[0]),
-                    _ => Err(BuilderError::TuplesNonReprC(ty)),
-                }
-            }
+            Tuple(list) => match list.len() {
+                0 => Ok(()),
+                1 => self.extend_from_ty(list[0]),
+                _ => Err(BuilderError::TuplesNonReprC(ty)),
+            },
 
             Adt(adt_def, substs_ref) => {
                 use rustc_middle::ty::AdtKind::*;
@@ -158,8 +155,8 @@ impl<'tcx> NfaBuilder<'tcx> {
                     data_size: layout.size() as u32,
                     data_align: layout.align() as u32,
                 }))?;
-                let tail_size = layout.size().checked_sub(1)
-                    .expect("Pointer should be at least one byte long");
+                let tail_size =
+                    layout.size().checked_sub(1).expect("Pointer should be at least one byte long");
                 self.extend(repeat_with(|| Inst::RefTail).take(tail_size))?;
                 Ok(())
             }
@@ -179,8 +176,8 @@ impl<'tcx> NfaBuilder<'tcx> {
                     data_size: layout.size() as u32,
                     data_align: layout.align() as u32,
                 }))?;
-                let tail_size = layout.size().checked_sub(1)
-                    .expect("Pointer should be at least one byte long");
+                let tail_size =
+                    layout.size().checked_sub(1).expect("Pointer should be at least one byte long");
                 self.extend(repeat_with(|| Inst::RefTail).take(tail_size))?;
                 Ok(())
             }
@@ -253,8 +250,8 @@ impl<'tcx> NfaBuilder<'tcx> {
 
         let variants = adt_def.variants();
         let mut variant_it = variants.iter().enumerate();
-        let (last_idx, last_variant) = variant_it.next_back()
-            .expect("At least one variant is present");
+        let (last_idx, last_variant) =
+            variant_it.next_back().expect("At least one variant is present");
 
         let mut patches = Vec::with_capacity(adt_def.variants().len());
         let mut prev_patch: Option<usize> = None;
@@ -314,8 +311,7 @@ impl<'tcx> NfaBuilder<'tcx> {
         let private = self.priv_depth > 0;
         let tag = InstByte::for_literal(endian, tag_layout.size(), discr, private);
         self.insts.extend(tag);
-        self.layout = self.layout.extend(tag_layout)
-            .map_err(|_| BuilderError::LayoutOverflow)?.0;
+        self.layout = self.layout.extend(tag_layout).map_err(|_| BuilderError::LayoutOverflow)?.0;
         self.pad_to_align(layout.align())?;
         for (index, field) in variant.fields.iter().enumerate() {
             let ty = field.ty(self.tcx, substs);
@@ -354,8 +350,8 @@ impl<'tcx> NfaBuilder<'tcx> {
         let orig_layout = self.layout;
 
         let mut fields_it = all_fields.iter().enumerate();
-        let (last_idx, last_field) = fields_it.next_back()
-            .expect("At least one variant is present");
+        let (last_idx, last_field) =
+            fields_it.next_back().expect("At least one variant is present");
 
         let mut patches = Vec::with_capacity(adt_def.variants().len());
         let mut prev_patch: Option<usize> = None;
@@ -442,7 +438,7 @@ impl<'tcx> NfaBuilder<'tcx> {
 
     fn extend<I>(&mut self, it: I) -> Result<'tcx>
     where
-        I: Iterator<Item=Inst<Ty<'tcx>>>
+        I: Iterator<Item = Inst<Ty<'tcx>>>,
     {
         for item in it {
             self.push(item)?;
@@ -452,17 +448,17 @@ impl<'tcx> NfaBuilder<'tcx> {
 
     fn pad(&mut self, padding: usize) -> Result<'tcx> {
         if padding == 0 {
-            return Ok(())
+            return Ok(());
         }
 
         let parent = self.debug_parent;
         self.debug.push(DebugEntry::Padding { ip: self.insts.len() as InstPtr, parent });
 
         // println!("i:{}, padding: {}, layout: {:?}", self.insts.len(), padding, self.layout);
-        let padding_layout = Layout::from_size_align(padding, 1)
-            .map_err(|_| BuilderError::LayoutOverflow)?;
-        self.layout = self.layout.extend(padding_layout)
-            .map_err(|_| BuilderError::LayoutOverflow)?.0;
+        let padding_layout =
+            Layout::from_size_align(padding, 1).map_err(|_| BuilderError::LayoutOverflow)?;
+        self.layout =
+            self.layout.extend(padding_layout).map_err(|_| BuilderError::LayoutOverflow)?.0;
 
         self.extend(repeat_with(|| Inst::Uninit).take(padding))
     }
@@ -480,8 +476,11 @@ impl<'tcx> NfaBuilder<'tcx> {
 
     fn repeat_byte(&mut self, size: usize, byte_ranges: RangeInclusive) -> Result<'tcx> {
         let private = self.priv_depth > 0;
-        self.extend(repeat_with(|| {
-            Inst::ByteRange(InstByteRange { private, range: byte_ranges, alternate: None })
-        }).take(size))
+        self.extend(
+            repeat_with(|| {
+                Inst::ByteRange(InstByteRange { private, range: byte_ranges, alternate: None })
+            })
+            .take(size),
+        )
     }
 }

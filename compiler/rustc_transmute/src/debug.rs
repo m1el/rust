@@ -28,7 +28,7 @@ impl<R: Clone> DebugEntry<R> {
             | EnterStruct { ip, .. }
             | EnterStructField { ip, .. }
             | EnterEnum { ip, .. }
-            | EnterEnumTag { ip, ..  }
+            | EnterEnumTag { ip, .. }
             | EnterEnumVariant { ip, .. }
             | EnterEnumVariantField { ip, .. }
             | EnterUnion { ip, .. }
@@ -37,7 +37,7 @@ impl<R: Clone> DebugEntry<R> {
             | EnterPtr { ip, .. }
             | EnterRef { ip, .. }
             | EnterFork { ip, .. }
-            | Padding { ip, .. } => *ip
+            | Padding { ip, .. } => *ip,
         }
     }
 
