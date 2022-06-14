@@ -21,7 +21,7 @@ pub use crate::exec::RejectFull;
 
 pub enum TransmuteError<'tcx> {
     BuilderError(BuilderError<'tcx>),
-    CheckError(Vec<RejectFull<'tcx>>),
+    CheckError(Vec<RejectFull<Ty<'tcx>>>),
 }
 
 impl<'tcx> core::convert::From<BuilderError<'tcx>> for TransmuteError<'tcx> {

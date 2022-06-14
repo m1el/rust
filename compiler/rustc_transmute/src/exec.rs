@@ -14,30 +14,30 @@ struct ExecFork {
     reason: ForkReason,
 }
 
-struct Reject<'tcx> {
+struct Reject<R: Clone> {
     src: InstPtr,
     dst: InstPtr,
     pos: usize,
-    reason: AcceptState<Ty<'tcx>>,
+    reason: AcceptState<R>,
 }
 
-pub struct RejectFull<'tcx> {
-    pub src: Vec<DebugEntry<Ty<'tcx>>>,
-    pub dst: Vec<DebugEntry<Ty<'tcx>>>,
+pub struct RejectFull<R: Clone> {
+    pub src: Vec<DebugEntry<R>>,
+    pub dst: Vec<DebugEntry<R>>,
     pub pos: usize,
-    pub reason: AcceptState<Ty<'tcx>>,
+    pub reason: AcceptState<R>,
 }
 
-pub struct Execution<'tcx> {
+pub struct Execution<R: Clone> {
     forks: Vec<ExecFork>,
     dst_forks: usize,
-    accept: Vec<AcceptState<Ty<'tcx>>>,
-    reject: Vec<Reject<'tcx>>,
-    dst: Program<Ty<'tcx>>,
-    src: Program<Ty<'tcx>>,
+    accept: Vec<AcceptState<R>>,
+    reject: Vec<Reject<R>>,
+    dst: Program<R>,
+    src: Program<R>,
 }
 
-impl<'tcx> Execution<'tcx> {
+impl<'tcx> Execution<Ty<'tcx>> {
     pub fn new(dst: Program<Ty<'tcx>>, mut src: Program<Ty<'tcx>>) -> Self {
         src.extend_to(&dst);
         /*
@@ -55,6 +55,9 @@ impl<'tcx> Execution<'tcx> {
             src,
         }
     }
+}
+
+impl<R: Clone> Execution<R> {
     fn push_fork(&mut self, dst: ProgFork, src: ProgFork, reason: ForkReason) {
         self.dst_forks += matches!(reason, ForkReason::Dst) as usize;
         self.forks.push(ExecFork { src, dst, reason });
@@ -98,7 +101,7 @@ impl<'tcx> Execution<'tcx> {
         }
     }
 
-    pub fn check(&mut self) -> Vec<RejectFull<'tcx>> {
+    pub fn check(&mut self) -> Vec<RejectFull<R>> {
         'outer: loop {
             macro_rules! pop {
                 () => {
