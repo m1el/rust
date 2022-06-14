@@ -304,27 +304,27 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
     ) -> Result<ImplSourceBuiltinData<PredicateObligation<'tcx>>, SelectionError<'tcx>> {
         debug!(?obligation, "confirm_transmutability_candidate");
 
-        let substs = obligation.predicate.substs();
+        let poly_trait_ref = obligation.predicate.to_poly_trait_ref();
+        let trait_ref = self.infcx.replace_bound_vars_with_placeholders(poly_trait_ref);
+        let substs = trait_ref.substs;
 
-        let type_at = |i| substs.map_bound(|s| s.type_at(i));
-        let bool_at = |i| {
-            substs
-                .skip_binder()
-                .const_at(i)
-                .try_eval_bool(self.tcx(), obligation.param_env)
-                .unwrap()
+        let bool_at =
+            |i| substs.const_at(i).try_eval_bool(self.tcx(), obligation.param_env).unwrap();
+
+        let dst = substs.type_at(0);
+        let src = substs.type_at(1);
+        let scope = substs.type_at(2);
+        let assume = rustc_transmute::Assume {
+            alignment: bool_at(3),
+            lifetimes: bool_at(4),
+            validity: bool_at(5),
+            visibility: bool_at(6),
         };
 
-        let src_and_dst =
-            substs.map_bound(|s| rustc_transmute::Types { src: s.type_at(1), dst: s.type_at(0) });
+        let query =
+            rustc_transmute::TransmuteQuery { ctxt: self.infcx.tcx, dst, src, scope, assume };
 
-        let scope = type_at(2).skip_binder();
-        let _assume_alignment: bool = bool_at(3);
-        let _assume_lifetimes: bool = bool_at(4);
-        let _assume_validity: bool = bool_at(5);
-        let _assume_visibility: bool = bool_at(6);
-
-        let result = rustc_transmute::check_transmute(self.infcx.tcx, scope, src_and_dst);
+        let result = rustc_transmute::check_transmute(query);
         match result {
             Ok(()) => Ok(ImplSourceBuiltinData { nested: vec![] }),
             Err(_) => Err(Unimplemented),

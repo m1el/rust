@@ -4,19 +4,15 @@ use crate::build::NfaBuilder;
 
 use crate::exec::Execution;
 use crate::TransmuteError;
-use crate::Types; //Map, Set, Types};
+// use crate::Assume; //Map, Set, Types};
 
 // use rustc_middle::ty::layout::HasTyCtxt;
-use rustc_middle::ty::{Binder, Ty, TyCtxt};
+
 pub fn check_transmute<'tcx>(
-    tcx: TyCtxt<'tcx>,
-    scope: Ty<'tcx>,
-    src_and_dst: Binder<'tcx, Types<'tcx>>,
+    query: crate::TransmuteQuery<'tcx>,
 ) -> Result<(), TransmuteError<'tcx>> {
-    let src_ty = src_and_dst.map_bound(|types| types.src).skip_binder();
-    let dst_ty = src_and_dst.map_bound(|types| types.dst).skip_binder();
-    let dst_nfa = NfaBuilder::build_ty(tcx, scope, dst_ty)?;
-    let src_nfa = NfaBuilder::build_ty(tcx, scope, src_ty)?;
+    let dst_nfa = NfaBuilder::build_ty(query.ctxt, query.scope, query.dst)?;
+    let src_nfa = NfaBuilder::build_ty(query.ctxt, query.scope, query.src)?;
     // println!("dst: {:?}", dst_nfa);
     // println!("src: {:?}", src_nfa);
     let mut exec = Execution::new(dst_nfa, src_nfa);

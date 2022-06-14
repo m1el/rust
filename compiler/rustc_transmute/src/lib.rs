@@ -1,10 +1,10 @@
 #![feature(alloc_layout_extra, control_flow_enum, iterator_try_reduce)]
 //#![allow(unused_imports, dead_code, unused_variables)]
 // use rustc_infer::infer::InferCtxt;
-use rustc_macros::TypeFoldable;
+// use rustc_macros::TypeFoldable;
 // use rustc_middle::traits::ObligationCause;
 // use rustc_middle::ty::Binder;
-use rustc_middle::ty::Ty;
+use rustc_middle::ty::{Ty, TyCtxt};
 
 // pub(crate) use rustc_data_structures::fx::FxHashMap as Map;
 // pub(crate) use rustc_data_structures::fx::FxHashSet as Set;
@@ -32,11 +32,21 @@ impl<'tcx> core::convert::From<BuilderError<'tcx>> for TransmuteError<'tcx> {
 
 pub use maybe_transmutable::check_transmute;
 
-#[derive(TypeFoldable, Debug, Clone, Copy)]
-pub struct Types<'tcx> {
-    pub src: Ty<'tcx>,
+pub struct TransmuteQuery<'tcx> {
+    pub ctxt: TyCtxt<'tcx>,
     pub dst: Ty<'tcx>,
+    pub src: Ty<'tcx>,
+    pub scope: Ty<'tcx>,
+    pub assume: Assume,
 }
+
+pub struct Assume {
+    pub alignment: bool,
+    pub lifetimes: bool,
+    pub validity: bool,
+    pub visibility: bool,
+}
+
 /*
 /// The type encodes answers to the question: "Are these types transmutable?"
 #[derive(Debug, Hash, Eq, PartialEq, PartialOrd, Ord, Clone)]

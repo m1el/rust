@@ -98,7 +98,7 @@ impl<'tcx> NfaBuilder<'tcx> {
 
     fn extend_from_ty(&mut self, ty: Ty<'tcx>) -> Result<'tcx> {
         use rustc_middle::ty::ParamEnv;
-        use rustc_middle::ty::TyKind::*;
+        use rustc_type_ir::TyKind::*;
 
         let tcx = self.tcx;
         let layout = layout_of(self.tcx, ty)?;
