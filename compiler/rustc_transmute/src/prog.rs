@@ -177,7 +177,7 @@ pub enum LayoutStep<R: Clone> {
 pub struct Program<R: Clone> {
     pub insts: Vec<Inst<R>>,
     pub debug: Vec<DebugEntry<R>>,
-    pub size: usize,
+    size: usize,
     ip: InstPtr,
     pos: usize,
     sforks: usize,
@@ -185,22 +185,13 @@ pub struct Program<R: Clone> {
     current: Option<LayoutStep<R>>,
 }
 
-// impl Clone for Program {
-//     fn clone(&self) -> Self {
-//         Self {
-//             current: self.current.clone(),
-//             ..*self
-//         }
-//     }
-// }
-
 impl<R: Clone> Program<R> {
     pub fn new(insts: Vec<Inst<R>>, debug: Vec<DebugEntry<R>>, size: usize) -> Self {
         Self { insts, debug, size, ip: 0, pos: 0, sforks: 0, took_fork: None, current: None }
     }
 
-    pub fn extend_to(&mut self, size: usize) {
-        let to_pad = size.saturating_sub(self.size);
+    pub fn extend_to(&mut self, other: &Self) {
+        let to_pad = other.size.saturating_sub(self.size);
         if to_pad == 0 {
             return;
         }
@@ -211,11 +202,12 @@ impl<R: Clone> Program<R> {
             "Expected the last instruction to be Accept"
         );
 
+        self.debug.push(DebugEntry::Padding { ip: self.insts.len() as InstPtr, parent: 0 });
         self.insts.extend((0..to_pad).map(|_| Inst::Uninit));
         self.insts.push(Inst::Accept);
     }
 
-    #[allow(dead_code)]
+    #[cfg(feature="print_dot")]
     pub fn print_dot<W: std::io::Write>(
         &self,
         dst: &mut W,
@@ -535,6 +527,39 @@ impl<R: Clone> Program<R> {
                 return;
             }
         }
+    }
+
+    #[allow(dead_code)]
+    pub fn resolve_debug(&self, ip: InstPtr) -> Vec<DebugEntry<R>> {
+        let mut result = Vec::new();
+        let seek = |ip| match self.debug.binary_search_by(|entry| entry.ip().cmp(&ip)) {
+            Ok(idx) => &self.debug[idx],
+            Err(idx) => &self.debug[idx.saturating_sub(1)],
+        };
+        let mut tail = seek(ip);
+
+        loop {
+            match tail {
+                DebugEntry::Root { .. } => {
+                    result.push(tail.clone());
+                    break;
+                }
+                DebugEntry::EnterFork { offset, .. } => {
+                    let parent_ip = ip.checked_sub(*offset)
+                        .expect("Debug entry for fork is invalid");
+                    tail = seek(parent_ip);
+                }
+                _ => {
+                    result.push(tail.clone());
+                    let parent = tail.parent_id()
+                        .expect("Should not be root or fork");
+                    tail = &self.debug[parent];
+                }
+            }
+        }
+
+        result.reverse();
+        result
     }
 }
 

@@ -16,10 +16,12 @@ mod maybe_transmutable;
 mod prog;
 
 pub use build::BuilderError;
+pub use debug::DebugEntry;
+pub use crate::exec::RejectFull;
 
 pub enum TransmuteError<'tcx> {
     BuilderError(BuilderError<'tcx>),
-    WhateverError,
+    CheckError(Vec<RejectFull<'tcx>>),
 }
 
 impl<'tcx> core::convert::From<BuilderError<'tcx>> for TransmuteError<'tcx> {

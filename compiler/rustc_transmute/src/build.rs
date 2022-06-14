@@ -1,12 +1,13 @@
 //! Build NFA describing a given type
-#![allow(dead_code)]
+
 use core::alloc::{Layout, LayoutError};
+use core::iter::repeat_with;
 
 use crate::debug::DebugEntry;
 use crate::prog::*;
 
 use rustc_middle::ty::TyCtxt;
-use rustc_middle::ty::{subst::SubstsRef, AdtDef, Ty, VariantDef};
+use rustc_middle::ty::{subst::SubstsRef, AdtDef, Ty, FieldDef, VariantDef};
 
 type Result<'tcx, T = ()> = core::result::Result<T, BuilderError<'tcx>>;
 
@@ -27,6 +28,7 @@ fn layout_of<'tcx>(ctx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Result<'tcx, Layout> {
 
 pub enum BuilderError<'tcx> {
     NonReprC(Ty<'tcx>),
+    TuplesNonReprC(Ty<'tcx>),
     TypeNotSupported(Ty<'tcx>),
     LayoutOverflow,
     NfaTooLarge,
@@ -40,9 +42,9 @@ impl<'a> core::convert::From<LayoutError> for BuilderError<'a> {
 
 const MAX_NFA_SIZE: usize = u32::max_value() as usize;
 
-pub struct NfaBuilder<'tcx, R: Clone> {
+pub struct NfaBuilder<'tcx> {
     pub layout: Layout,
-    pub insts: Vec<Inst<R>>,
+    pub insts: Vec<Inst<Ty<'tcx>>>,
     pub priv_depth: usize,
     pub debug: Vec<DebugEntry<Ty<'tcx>>>,
     pub debug_parent: usize,
@@ -50,7 +52,7 @@ pub struct NfaBuilder<'tcx, R: Clone> {
     pub scope: Ty<'tcx>,
 }
 
-impl<'tcx> NfaBuilder<'tcx, Ty<'tcx>> {
+impl<'tcx> NfaBuilder<'tcx> {
     pub fn new(tcx: TyCtxt<'tcx>, scope: Ty<'tcx>) -> Self {
         Self {
             layout: Layout::from_size_align(0, 1)
@@ -96,15 +98,10 @@ impl<'tcx> NfaBuilder<'tcx, Ty<'tcx>> {
     }
 
     fn extend_from_ty(&mut self, ty: Ty<'tcx>) -> Result<'tcx> {
-        use rustc_middle::ty::FloatTy::*;
-        use rustc_middle::ty::IntTy::*;
         use rustc_middle::ty::ParamEnv;
         use rustc_middle::ty::TyKind::*;
-        use rustc_middle::ty::UintTy::*;
-        use rustc_target::abi::HasDataLayout;
 
         let tcx = self.tcx;
-        let target = tcx.data_layout();
         let layout = layout_of(self.tcx, ty)?;
         self.layout = self.layout.align_to(layout.align())?;
         self.pad_to_align(layout.align())?;
@@ -115,12 +112,9 @@ impl<'tcx> NfaBuilder<'tcx, Ty<'tcx>> {
                 self.layout = self.layout.extend(layout)?.0;
                 Ok(())
             }
-            Int(I8) | Uint(U8) => self.number(1, layout),
-            Int(I16) | Uint(U16) => self.number(2, layout),
-            Int(I32) | Uint(U32) | Float(F32) => self.number(4, layout),
-            Int(I64) | Uint(U64) | Float(F64) => self.number(8, layout),
-            Int(I128) | Uint(U128) => self.number(16, layout),
-            Int(Isize) | Uint(Usize) => self.number(target.pointer_size.bytes_usize() as _, layout),
+
+            Int(_) | Uint(_) | Float(_) => self.number(layout.size(), layout),
+
             &Array(ty, size) => {
                 self.debug_enter(|ip, parent| DebugEntry::EnterArray { ip, parent, ty });
 
@@ -131,12 +125,21 @@ impl<'tcx> NfaBuilder<'tcx, Ty<'tcx>> {
                 self.debug_exit();
                 Ok(())
             }
+
+            Tuple(list) => {
+                match list.len() {
+                    0 => Ok(()),
+                    1 => self.extend_from_ty(list[0]),
+                    _ => Err(BuilderError::TuplesNonReprC(ty)),
+                }
+            }
+
             Adt(adt_def, substs_ref) => {
                 use rustc_middle::ty::AdtKind::*;
                 match adt_def.adt_kind() {
                     Struct => self.extend_struct(ty, *adt_def, substs_ref),
                     Enum => self.extend_enum(ty, *adt_def, substs_ref),
-                    Union => Err(BuilderError::TypeNotSupported(ty)),
+                    Union => self.extend_union(ty, *adt_def, substs_ref),
                 }
             }
 
@@ -157,7 +160,7 @@ impl<'tcx> NfaBuilder<'tcx, Ty<'tcx>> {
                 }))?;
                 let tail_size = layout.size().checked_sub(1)
                     .expect("Pointer should be at least one byte long");
-                self.repeat_with(tail_size as u32, || Inst::RefTail)?;
+                self.extend(repeat_with(|| Inst::RefTail).take(tail_size))?;
                 Ok(())
             }
 
@@ -178,7 +181,7 @@ impl<'tcx> NfaBuilder<'tcx, Ty<'tcx>> {
                 }))?;
                 let tail_size = layout.size().checked_sub(1)
                     .expect("Pointer should be at least one byte long");
-                self.repeat_with(tail_size as u32, || Inst::RefTail)?;
+                self.extend(repeat_with(|| Inst::RefTail).take(tail_size))?;
                 Ok(())
             }
 
@@ -213,15 +216,13 @@ impl<'tcx> NfaBuilder<'tcx, Ty<'tcx>> {
             });
 
             let field_layout = layout_of(tcx, field_ty)?;
-            let private = !field_def.vis.is_public();
+            assert!(field_layout.align() <= layout.align(), "Field align must fit struct align");
             self.pad_to_align(field_layout.align())?;
-            if private {
-                self.priv_depth += 1;
-            }
+
+            let private = !field_def.vis.is_public();
+            self.priv_depth += private as usize;
             self.extend_from_ty(field_ty)?;
-            if private {
-                self.priv_depth -= 1;
-            }
+            self.priv_depth -= private as usize;
 
             self.debug_exit();
         }
@@ -243,7 +244,7 @@ impl<'tcx> NfaBuilder<'tcx, Ty<'tcx>> {
         let tcx = self.tcx;
         let layout = layout_of(self.tcx, ty)?;
         let repr = adt_def.repr();
-        if !repr.c() {
+        if !repr.c() || adt_def.variants().len() < 1 {
             return Err(BuilderError::NonReprC(ty));
         }
         self.debug_enter(|ip, parent| DebugEntry::EnterEnum { ip, parent, ty });
@@ -259,27 +260,18 @@ impl<'tcx> NfaBuilder<'tcx, Ty<'tcx>> {
         let mut prev_patch: Option<usize> = None;
 
         for (index, variant) in variant_it {
-            self.debug_enter(|ip, parent| DebugEntry::EnterEnumVariant {
-                ip,
-                parent,
-                def_id: variant.def_id,
-                index,
-            });
-            let split = self.insts.len();
+            let split = self.push_split()?;
             if let Some(prev_split) = prev_patch {
                 self.insts[prev_split].patch_split(split as InstPtr);
             }
             prev_patch = Some(split);
-            self.insts.push(Inst::new_invalid_split());
 
             let discr = adt_def.discriminant_for_variant(tcx, VariantIdx::new(index));
             let tag_layout = layout_of(tcx, discr.ty)?;
-            self.extend_enum_variant(layout, substs, tag_layout, discr.val, variant)?;
+            self.extend_enum_variant(layout, substs, tag_layout, discr.val, index, variant)?;
 
-            patches.push(self.insts.len());
-            self.insts.push(Inst::new_invalid_goto());
+            patches.push(self.push_goto()?);
             self.layout = orig_layout;
-            self.debug_exit();
         }
 
         if let Some(last_split) = prev_patch {
@@ -289,7 +281,7 @@ impl<'tcx> NfaBuilder<'tcx, Ty<'tcx>> {
 
         let discr = adt_def.discriminant_for_variant(tcx, VariantIdx::new(last_idx));
         let tag_layout = layout_of(tcx, discr.ty)?;
-        self.extend_enum_variant(layout, substs, tag_layout, discr.val, last_variant)?;
+        self.extend_enum_variant(layout, substs, tag_layout, discr.val, last_idx, last_variant)?;
 
         let ip = self.insts.len() as InstPtr;
 
@@ -300,25 +292,25 @@ impl<'tcx> NfaBuilder<'tcx, Ty<'tcx>> {
         Ok(())
     }
 
-    fn int_ty(&self, int_type: rustc_attr::IntType) -> Ty<'tcx> {
-        use rustc_attr::IntType;
-        use rustc_middle::ty::{int_ty, uint_ty};
-        match int_type {
-            IntType::SignedInt(si) => self.tcx.mk_mach_int(int_ty(si)),
-            IntType::UnsignedInt(ui) => self.tcx.mk_mach_uint(uint_ty(ui)),
-        }
-    }
-
     fn extend_enum_variant(
         &mut self,
         layout: Layout,
         substs: SubstsRef<'tcx>,
         tag_layout: Layout,
         discr: u128,
+        index: usize,
         variant: &'tcx VariantDef,
     ) -> Result<'tcx> {
         use rustc_target::abi::HasDataLayout;
         let endian = self.tcx.data_layout().endian;
+
+        self.debug_enter(|ip, parent| DebugEntry::EnterEnumVariant {
+            ip,
+            parent,
+            def_id: variant.def_id,
+            index,
+        });
+
         let private = self.priv_depth > 0;
         let tag = InstByte::for_literal(endian, tag_layout.size(), discr, private);
         self.insts.extend(tag);
@@ -338,133 +330,106 @@ impl<'tcx> NfaBuilder<'tcx, Ty<'tcx>> {
             self.debug_exit();
         }
         self.pad_to_align(layout.align())?;
+        self.debug_exit();
         Ok(())
     }
-    /*
-    pub fn extend_from_ty_old(&mut self, ty: &Ty) {
-        let layout = layout_of(ty);
-        self.layout = self.layout.align_to(layout.align()).unwrap();
-        self.pad_to_align(layout.align());
 
-        match *ty {
-            Ty::Void => {
-                // let literal = InstBytes::for_literal(Endian::Little, 4, 0x13371337);
-                // self.insts.extend(literal.map(Inst::Bytes));
-            }
-            Ty::Bool => {
-                self.repeat_byte(1, (0..=1).into());
-                self.layout = self.layout.extend(layout).unwrap().0;
-            }
-            Ty::Int(size) => {
-                self.repeat_byte(size, (0..=255).into());
-                self.layout = self.layout.extend(layout).unwrap().0;
-            }
-            Ty::Ptr(ref _ptr) => {
-                unimplemented!();
-            }
-            Ty::Ref(ref _ptr) => {
-                unimplemented!();
-            }
-            Ty::Array(ref array) => {
-                for _ in 0..array.count {
-                    self.extend_from_ty(&array.element);
-                }
-            }
-            Ty::Struct(ref s_def) => {
-                for field in s_def.fields.iter() {
-                    let layout = layout_of(&field.ty);
-                    self.pad_to_align(layout.align());
-                    if field.private { self.priv_depth += 1; }
-                    self.extend_from_ty(&field.ty);
-                    if field.private { self.priv_depth -= 1; }
-                }
-                self.pad_to_align(layout.align());
-            }
-            Ty::Enum(ref e_def) => {
-                assert!(!e_def.variants.is_empty(), "zero-variant enum isn't repr-c");
-                let mut variants = e_def.variants.iter();
-                let last_variant = variants.next_back()
-                    .expect("at least one variant is present");
-                let mut patches = Vec::with_capacity(e_def.variants.len());
-                let mut prev_patch: Option<usize> = None;
-                let orig_layout = self.layout;
-
-                for variant in variants {
-                    let split = self.insts.len();
-                    if let Some(prev_split) = prev_patch {
-                        self.insts[prev_split].patch_split(split as InstPtr);
-                    }
-                    prev_patch = Some(split);
-                    self.insts.push(Inst::new_invalid_split());
-
-                    self.extend_enum_variant(e_def, variant);
-
-                    patches.push(self.insts.len());
-                    self.insts.push(Inst::new_invalid_goto());
-                    self.layout = orig_layout;
-                }
-
-                if let Some(last_split) = prev_patch {
-                    let ip = self.insts.len() as InstPtr;
-                    self.insts[last_split].patch_split(ip);
-                }
-
-                self.extend_enum_variant(e_def, last_variant);
-                self.insts.push(Inst::Join);
-                let ip = self.insts.len() as InstPtr;
-
-                for patch in patches {
-                    self.insts[patch].patch_goto(ip);
-                }
-
-            }
-            Ty::Union(ref u_def) => {
-                assert!(!u_def.variants.is_empty(), "zero-variant enum isn't repr-c");
-                let mut variants = u_def.variants.iter();
-                let last_variant = variants.next_back()
-                    .expect("at least one variant is present");
-                let mut patches = Vec::with_capacity(u_def.variants.len());
-                let mut prev_patch: Option<usize> = None;
-                let orig_layout = self.layout;
-
-                for variant in variants {
-                    let split = self.insts.len();
-                    if let Some(prev_split) = prev_patch {
-                        self.insts[prev_split].patch_split(split as InstPtr);
-                    }
-                    prev_patch = Some(split);
-                    self.insts.push(Inst::new_invalid_split());
-
-                    self.extend_union_variant(u_def, variant);
-                    patches.push(self.insts.len());
-                    self.insts.push(Inst::new_invalid_goto());
-                    self.layout = orig_layout;
-                }
-
-                if let Some(last_split) = prev_patch {
-                    let ip = self.insts.len() as InstPtr;
-                    self.insts[last_split].patch_split(ip);
-                }
-
-                self.extend_union_variant(u_def, last_variant);
-                self.insts.push(Inst::Join);
-                let ip = self.insts.len() as InstPtr;
-
-                for patch in patches {
-                    self.insts[patch].patch_goto(ip);
-                }
-            }
+    fn extend_union(
+        &mut self,
+        ty: Ty<'tcx>,
+        adt_def: AdtDef<'tcx>,
+        substs: SubstsRef<'tcx>,
+    ) -> Result<'tcx> {
+        use rustc_index::vec::Idx;
+        use rustc_target::abi::VariantIdx;
+        let layout = layout_of(self.tcx, ty)?;
+        let repr = adt_def.repr();
+        assert!(adt_def.variants().len() == 1, "Unions must have one variant");
+        let all_fields = &adt_def.variant(VariantIdx::new(0)).fields;
+        if !repr.c() || all_fields.len() < 1 {
+            return Err(BuilderError::NonReprC(ty));
         }
+        self.debug_enter(|ip, parent| DebugEntry::EnterUnion { ip, parent, ty });
+
+        let orig_layout = self.layout;
+
+        let mut fields_it = all_fields.iter().enumerate();
+        let (last_idx, last_field) = fields_it.next_back()
+            .expect("At least one variant is present");
+
+        let mut patches = Vec::with_capacity(adt_def.variants().len());
+        let mut prev_patch: Option<usize> = None;
+
+        for (index, field) in fields_it {
+            let split = self.push_split()?;
+            if let Some(prev_split) = prev_patch {
+                self.insts[prev_split].patch_split(split as InstPtr);
+            }
+            prev_patch = Some(split);
+
+            self.extend_union_variant(layout, substs, index, field)?;
+
+            patches.push(self.push_goto()?);
+            self.layout = orig_layout;
+            self.debug_exit();
+        }
+
+        if let Some(last_split) = prev_patch {
+            let ip = self.insts.len() as InstPtr;
+            self.insts[last_split].patch_split(ip);
+        }
+
+        self.extend_union_variant(layout, substs, last_idx, last_field)?;
+
+        let ip = self.insts.len() as InstPtr;
+
+        for patch in patches {
+            self.insts[patch].patch_goto(ip);
+        }
+        self.debug_exit();
+        Ok(())
     }
-    fn extend_union_variant(&mut self, u_def: &Union, variant: &UnionVariant) {
-        self.pad_to_align(u_def.layout.align());
-        self.priv_depth += variant.private as usize;
-        self.extend_from_ty(&variant.ty);
-        self.priv_depth -= variant.private as usize;
-        let variant_layout = layout_of(&variant.ty);
-        self.pad(u_def.layout.size() - variant_layout.size());
+
+    fn extend_union_variant(
+        &mut self,
+        layout: Layout,
+        substs: SubstsRef<'tcx>,
+        index: usize,
+        field: &'tcx FieldDef,
+    ) -> Result<'tcx> {
+        let ty = field.ty(self.tcx, substs);
+        self.debug_enter(|ip, parent| DebugEntry::EnterUnionVariant {
+            ip,
+            parent,
+            def_id: field.did,
+            ty,
+            index,
+        });
+
+        let ty_layout = layout_of(self.tcx, ty)?;
+        assert!(ty_layout.align() <= layout.align(), "Union field align must fit parent align");
+
+        let private = !field.vis.is_public();
+        self.priv_depth += private as usize;
+        self.extend_from_ty(ty)?;
+        self.priv_depth -= private as usize;
+
+        self.pad(layout.size() - ty_layout.size())?;
+        self.debug_exit();
+        Ok(())
     }
-    */
+
+    fn push_split(&mut self) -> Result<'tcx, usize> {
+        let ip = self.insts.len();
+        self.push(Inst::new_invalid_split())?;
+        Ok(ip)
+    }
+
+    fn push_goto(&mut self) -> Result<'tcx, usize> {
+        let ip = self.insts.len();
+        self.push(Inst::new_invalid_goto())?;
+        Ok(ip)
+    }
 
     fn push(&mut self, inst: Inst<Ty<'tcx>>) -> Result<'tcx> {
         if self.insts.len() >= MAX_NFA_SIZE {
@@ -475,17 +440,21 @@ impl<'tcx> NfaBuilder<'tcx, Ty<'tcx>> {
         }
     }
 
-    fn repeat_with<F>(&mut self, count: u32, f: F) -> Result<'tcx>
+    fn extend<I>(&mut self, it: I) -> Result<'tcx>
     where
-        F: Fn() -> Inst<Ty<'tcx>>,
+        I: Iterator<Item=Inst<Ty<'tcx>>>
     {
-        for _ in 0..count {
-            self.push(f())?;
+        for item in it {
+            self.push(item)?;
         }
         Ok(())
     }
 
     fn pad(&mut self, padding: usize) -> Result<'tcx> {
+        if padding == 0 {
+            return Ok(())
+        }
+
         let parent = self.debug_parent;
         self.debug.push(DebugEntry::Padding { ip: self.insts.len() as InstPtr, parent });
 
@@ -495,7 +464,7 @@ impl<'tcx> NfaBuilder<'tcx, Ty<'tcx>> {
         self.layout = self.layout.extend(padding_layout)
             .map_err(|_| BuilderError::LayoutOverflow)?.0;
 
-        self.repeat_with(padding as u32, || Inst::Uninit)
+        self.extend(repeat_with(|| Inst::Uninit).take(padding))
     }
 
     fn pad_to_align(&mut self, align: usize) -> Result<'tcx> {
@@ -503,15 +472,16 @@ impl<'tcx> NfaBuilder<'tcx, Ty<'tcx>> {
         self.pad(padding)
     }
 
-    fn number(&mut self, size: u32, layout: Layout) -> Result<'tcx> {
+    fn number(&mut self, size: usize, layout: Layout) -> Result<'tcx> {
         self.repeat_byte(size, (0..=255).into())?;
         self.layout = self.layout.extend(layout)?.0;
         Ok(())
     }
-    fn repeat_byte(&mut self, size: u32, byte_ranges: RangeInclusive) -> Result<'tcx> {
+
+    fn repeat_byte(&mut self, size: usize, byte_ranges: RangeInclusive) -> Result<'tcx> {
         let private = self.priv_depth > 0;
-        self.repeat_with(size, || {
+        self.extend(repeat_with(|| {
             Inst::ByteRange(InstByteRange { private, range: byte_ranges, alternate: None })
-        })
+        }).take(size))
     }
 }

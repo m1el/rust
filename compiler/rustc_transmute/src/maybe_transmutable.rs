@@ -1,13 +1,13 @@
 use crate::build::NfaBuilder;
 // use crate::nfa::{Byte, Nfa, State, Transition};
 // use crate::Answer;
+
 use crate::exec::Execution;
 use crate::TransmuteError;
 use crate::Types; //Map, Set, Types};
 
 // use rustc_middle::ty::layout::HasTyCtxt;
 use rustc_middle::ty::{Binder, Ty, TyCtxt};
-
 pub fn check_transmute<'tcx>(
     tcx: TyCtxt<'tcx>,
     scope: Ty<'tcx>,
@@ -19,14 +19,22 @@ pub fn check_transmute<'tcx>(
     let src_nfa = NfaBuilder::build_ty(tcx, scope, src_ty)?;
     // println!("dst: {:?}", dst_nfa);
     // println!("src: {:?}", src_nfa);
-    let mut queue = vec![Execution::new(dst_nfa, src_nfa)];
-    while let Some(mut exec) = queue.pop() {
-        let result = exec.check();
-        if result.len() != 0 {
-            return Err(TransmuteError::WhateverError);
+    let mut exec = Execution::new(dst_nfa, src_nfa);
+    let result = exec.check();
+    if result.len() == 0 {
+        Ok(())
+    } else {
+        for reject in result.iter() {
+            let src_dbg = reject.src
+                .iter().map(|dbg| dbg.ident())
+                .collect::<Vec<_>>();
+            let dst_dbg = reject.dst
+                .iter().map(|dbg| dbg.ident())
+                .collect::<Vec<_>>();
+            println!("Reject: reason={:?}, pos={}, {:?} -> {:?}", reject.reason, reject.pos, src_dbg, dst_dbg);
         }
+        Err(TransmuteError::CheckError(result))
     }
-    Ok(())
 }
 
 /*

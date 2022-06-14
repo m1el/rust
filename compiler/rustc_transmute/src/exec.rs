@@ -1,4 +1,5 @@
 use crate::prog::{AcceptState, InstPtr, LayoutStep, ProgFork, Program};
+use crate::debug::DebugEntry;
 use core::ops::ControlFlow;
 use rustc_middle::ty::Ty;
 
@@ -13,12 +14,18 @@ struct ExecFork {
     reason: ForkReason,
 }
 
-#[derive(Debug)]
-#[allow(dead_code)]
-pub struct Reject<'tcx> {
+struct Reject<'tcx> {
     src: InstPtr,
     dst: InstPtr,
+    pos: usize,
     reason: AcceptState<Ty<'tcx>>,
+}
+
+pub struct RejectFull<'tcx> {
+    pub src: Vec<DebugEntry<Ty<'tcx>>>,
+    pub dst: Vec<DebugEntry<Ty<'tcx>>>,
+    pub pos: usize,
+    pub reason: AcceptState<Ty<'tcx>>,
 }
 
 pub struct Execution<'tcx> {
@@ -32,7 +39,11 @@ pub struct Execution<'tcx> {
 
 impl<'tcx> Execution<'tcx> {
     pub fn new(dst: Program<Ty<'tcx>>, mut src: Program<Ty<'tcx>>) -> Self {
-        src.extend_to(dst.size);
+        src.extend_to(&dst);
+        let src_dbg = src.debug.iter().map(|dbg| (dbg.ip(), dbg.ident())).collect::<Vec<_>>();
+        let dst_dbg = dst.debug.iter().map(|dbg| (dbg.ip(), dbg.ident())).collect::<Vec<_>>();
+        println!("src_dbg = {:?}", src_dbg);
+        println!("dst_dbg = {:?}", dst_dbg);
         Self {
             forks: Vec::new(),
             dst_forks: 0,
@@ -57,7 +68,7 @@ impl<'tcx> Execution<'tcx> {
         }
     }
 
-    /*
+    #[cfg(feature="print_dot")]
     fn print_dot(&self) -> Result<(), Box<dyn std::error::Error>> {
         use std::process::Command;
         use std::fs::OpenOptions;
@@ -69,8 +80,8 @@ impl<'tcx> Execution<'tcx> {
             .open("graph.dot")?;
 
         writeln!(file, "digraph q {{")?;
-        self.dst.print_dot(&mut file, None)?;
-        self.src.print_dot(&mut file, Some(&self.accept))?;
+        self.dst.print_dot(&mut file, "dst", None)?;
+        self.src.print_dot(&mut file, "src", Some(&self.accept))?;
         writeln!(file, "}}")?;
         core::mem::drop(file);
 
@@ -84,9 +95,8 @@ impl<'tcx> Execution<'tcx> {
             Err("failed to run dot".into())
         }
     }
-    */
 
-    pub fn check(&mut self) -> Vec<Reject<'tcx>> {
+    pub fn check(&mut self) -> Vec<RejectFull<'tcx>> {
         'outer: loop {
             macro_rules! pop {
                 () => {
@@ -111,15 +121,15 @@ impl<'tcx> Execution<'tcx> {
                 continue;
             }
 
-            let (s_ip, s_byte, d_ip, d_byte) = match (self.src.next(), self.dst.next()) {
+            let (s_ip, s_byte, d_ip, d_byte, pos) = match (self.src.next(), self.dst.next()) {
                 (_, None) => pop!(),
                 (None, Some(_)) => {
                     unreachable!("src should have been extended to match dst");
                 }
                 (
-                    Some(LayoutStep::Byte { ip: s_ip, byte: s_byte, .. }),
+                    Some(LayoutStep::Byte { ip: s_ip, byte: s_byte, pos }),
                     Some(LayoutStep::Byte { ip: d_ip, byte: d_byte, .. }),
-                ) => (s_ip, s_byte, d_ip, d_byte),
+                ) => (s_ip, s_byte, d_ip, d_byte, pos),
                 (Some(_), Some(_)) => {
                     unreachable!(
                         "next_fork() must prevent us from getting LayoutStep::Fork from next()"
@@ -142,11 +152,24 @@ impl<'tcx> Execution<'tcx> {
             }
 
             if !accepts.always() {
-                self.reject.push(Reject { src: s_ip, dst: d_ip, reason: accepts });
+                self.reject.push(Reject {
+                    src: s_ip,
+                    dst: d_ip,
+                    pos,
+                    reason: accepts
+                });
                 pop!();
             }
         }
 
-        self.reject.drain(..).filter(|rej| !self.accept[rej.src as usize].always()).collect()
+        self.reject.drain(..)
+            .filter(|rej| !self.accept[rej.src as usize].always())
+            .map(|rej| RejectFull {
+                src: self.src.resolve_debug(rej.src),
+                dst: self.dst.resolve_debug(rej.dst),
+                pos: rej.pos,
+                reason: rej.reason,
+            })
+            .collect()
     }
 }
