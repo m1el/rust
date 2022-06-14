@@ -31,6 +31,6 @@ pub fn check_transmute<'tcx>(
             println!("Reject: reason={:?}, pos={}, {:?} -> {:?}", reject.reason, reject.pos, src_dbg, dst_dbg);
         }
         */
-        Err(TransmuteError::CheckError(result))
+        Err(TransmuteError::Rejected(result))
     }
 }
