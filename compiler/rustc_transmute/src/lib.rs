@@ -9,9 +9,12 @@ use rustc_middle::ty::Ty;
 pub(crate) use rustc_data_structures::fx::FxHashMap as Map;
 pub(crate) use rustc_data_structures::fx::FxHashSet as Set;
 
+mod debug;
 mod build;
+mod exec;
 mod prog;
 mod nfa;
+
 pub use nfa::Nfa;
 pub use build::BuilderError;
 
@@ -27,6 +30,7 @@ impl<'tcx> core::convert::From<BuilderError<'tcx>> for TransmuteError<'tcx> {
 
 mod maybe_transmutable;
 pub use maybe_transmutable::maybe_transmutable;
+pub use maybe_transmutable::check_transmute;
 
 #[derive(TypeFoldable, Debug, Clone, Copy)]
 pub struct Types<'tcx> {

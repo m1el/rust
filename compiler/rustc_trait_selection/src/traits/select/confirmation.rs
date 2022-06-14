@@ -318,12 +318,18 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
         let src_and_dst =
             substs.map_bound(|s| rustc_transmute::Types { src: s.type_at(1), dst: s.type_at(0) });
 
-        let scope = type_at(2).skip_binder();
-        let assume_alignment: bool = bool_at(3);
-        let assume_lifetimes: bool = bool_at(4);
-        let assume_validity: bool = bool_at(5);
-        let assume_visibility: bool = bool_at(6);
+        let _scope = type_at(2).skip_binder();
+        let _assume_alignment: bool = bool_at(3);
+        let _assume_lifetimes: bool = bool_at(4);
+        let _assume_validity: bool = bool_at(5);
+        let _assume_visibility: bool = bool_at(6);
+        let result = rustc_transmute::check_transmute(self.infcx.tcx, src_and_dst);
+        match result {
+            Ok(()) => Ok(ImplSourceBuiltinData { nested: vec![] }),
+            Err(_) => Err(Unimplemented),
+        }
 
+        /*
         let cause = obligation.cause.clone();
 
         let mut transmute_env = rustc_transmute::TransmuteTypeEnv::new(self.infcx);
@@ -344,6 +350,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
             Answer::Yes => Ok(ImplSourceBuiltinData { nested: vec![] }),
             _ => Err(Unimplemented),
         }
+        */
     }
 
     /// This handles the case where an `auto trait Foo` impl is being used.

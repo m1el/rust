@@ -3,6 +3,8 @@
 use core::alloc::{Layout, LayoutError};
 
 use crate::prog::*;
+use crate::debug::DebugEntry;
+
 use rustc_middle::ty::Ty;
 use rustc_middle::ty::TyCtxt;
 use rustc_target::abi::Endian;
@@ -37,16 +39,19 @@ impl<'a> core::convert::From<LayoutError> for BuilderError<'a> {
     }
 }
 
+
 const MAX_NFA_SIZE: usize = u32::max_value() as usize;
 
-pub struct NfaBuilder {
+pub struct NfaBuilder<'tcx, R: Clone> {
     pub endian: Endian,
     pub layout: Layout,
-    pub insts: Vec<Inst>,
+    pub insts: Vec<Inst<R>>,
     pub priv_depth: usize,
+    pub debug: Vec<DebugEntry<Ty<'tcx>>>,
+    pub debug_parents: Vec<usize>,
 }
 
-impl NfaBuilder {
+impl<'tcx> NfaBuilder<'tcx, Ty<'tcx>> {
     pub fn new(endian: Endian) -> Self {
         Self {
             endian,
@@ -54,23 +59,44 @@ impl NfaBuilder {
                 .expect("This layout should always succeed"),
             insts: Vec::new(),
             priv_depth: 0,
+            debug: Vec::new(),
+            debug_parents: Vec::new(),
         }
     }
 
-    pub fn build_ty<'tcx>(ty: Ty<'tcx>, tcx: TyCtxt<'tcx>) -> Result<'tcx, Program> {
+    pub fn build_ty(ty: Ty<'tcx>, tcx: TyCtxt<'tcx>) -> Result<'tcx, Program<Ty<'tcx>>> {
         use rustc_target::abi::HasDataLayout;
         let endian = tcx.data_layout().endian;
-        let mut compiler = Self::new(endian)?;
-        compiler.extend_from_ty(ty, tcx)?;
-        compiler.push(Inst::Accept)?;
-        Ok(Program::new(compiler.insts, "TODO"))
+        let mut builder = Self::new(endian);
+
+        builder.debug.push(DebugEntry::Root { ip: 0, ty });
+        builder.debug_parents.push(0);
+
+        builder.extend_from_ty(ty, tcx)?;
+        builder.push(Inst::Accept)?;
+        Ok(Program::new(builder.insts, builder.debug, builder.layout.size()))
     }
 
-    fn extend_from_ty<'tcx>(&mut self, ty: Ty<'tcx>, tcx: TyCtxt<'tcx>) -> Result<'tcx> {
+    fn debug_enter<F>(&mut self, f: F)
+        where F: Fn(usize, InstPtr) -> DebugEntry<Ty<'tcx>>
+    {
+        let parent = *self.debug_parents.last()
+            .expect("there should be at least root parent");
+        let ip = self.insts.len() as InstPtr;
+        self.debug_parents.push(self.debug.len());
+        self.debug.push(f(parent, ip));
+    }
+
+    fn debug_exit(&mut self) {
+        self.debug_parents.pop();
+    }
+
+    fn extend_from_ty(&mut self, ty: Ty<'tcx>, tcx: TyCtxt<'tcx>) -> Result<'tcx> {
         use rustc_middle::ty::FloatTy::*;
         use rustc_middle::ty::IntTy::*;
         use rustc_middle::ty::TyKind::*;
         use rustc_middle::ty::UintTy::*;
+        use rustc_middle::ty::ParamEnv;
         use rustc_target::abi::{Align, Endian};
         use rustc_target::abi::HasDataLayout;
         use std::alloc::Layout;
@@ -95,7 +121,18 @@ impl NfaBuilder {
             Int(Isize) | Uint(Usize) => {
                 self.number(target.pointer_size.bytes_usize() as _, layout)
             }
+            &Array(ty, size) => {
+                self.debug_enter(|parent, ip|
+                    DebugEntry::EnterArray { ip, parent, ty }
+                );
 
+                for index in 0..size.eval_usize(tcx, ParamEnv::reveal_all()) {
+                    self.extend_from_ty(ty, tcx)?;
+                }
+
+                self.debug_exit();
+                Ok(())
+            }
             Adt(adt_def, substs_ref) => {
                 use rustc_middle::ty::AdtKind::*;
                 match adt_def.adt_kind() {
@@ -108,8 +145,19 @@ impl NfaBuilder {
 
                         let size_and_align = layout_of(tcx, ty)?;
 
-                        for field_def in adt_def.all_fields() {
+                        self.debug_enter(|parent, ip|
+                            DebugEntry::EnterStruct { ip, parent, ty }
+                        );
+                        for (index, field_def) in adt_def.all_fields().enumerate() {
                             let field_ty = field_def.ty(tcx, substs_ref);
+
+                            self.debug_enter(|parent, ip| DebugEntry::EnterStructField {
+                                ip,
+                                parent,
+                                ty: field_ty,
+                                index,
+                            });
+
                             let field_layout = layout_of(tcx, field_ty)?;
                             let private = !field_def.vis.is_public();
                             self.pad_to_align(field_layout.align())?;
@@ -120,13 +168,48 @@ impl NfaBuilder {
                             if private {
                                 self.priv_depth -= 1;
                             }
+
+                            self.debug_exit();
                         }
-                        self.pad_to_align(layout.align())
+
+                        self.pad_to_align(layout.align())?;
+                        self.debug_exit();
+                        Ok(())
                     }
                     Enum => Err(BuilderError::TypeNotSupported(ty)),
                     Union => Err(BuilderError::TypeNotSupported(ty)),
                 }
-            }
+            },
+
+            &RawPtr(ty_and_mut) => {
+                let layout = layout_of(tcx, ty_and_mut.ty)?;
+                self.push(Inst::Ref(InstRef {
+                    is_ptr: true,
+                    ref_kind: ty_and_mut.mutbl,
+                    ty: ty_and_mut.ty,
+                    data_size: layout.size() as u32,
+                    data_align: layout.align() as u32,
+                }))?;
+                let tail_size = layout.size().checked_sub(1)
+                    .expect("Pointer should be at least one byte long");
+                self.repeat_with(tail_size as u32, || Inst::RefTail)?;
+                Err(BuilderError::TypeNotSupported(ty))
+            },
+
+            &Ref(_region, rty, mu) => {
+                let layout = layout_of(tcx, ty)?;
+                self.push(Inst::Ref(InstRef {
+                    is_ptr: false,
+                    ref_kind: mu,
+                    ty: rty,
+                    data_size: layout.size() as u32,
+                    data_align: layout.align() as u32,
+                }))?;
+                let tail_size = layout.size().checked_sub(1)
+                    .expect("Pointer should be at least one byte long");
+                self.repeat_with(tail_size as u32, || Inst::RefTail)?;
+                Err(BuilderError::TypeNotSupported(ty))
+            },
 
             _ => Err(BuilderError::TypeNotSupported(ty)),
         }
@@ -269,7 +352,7 @@ impl NfaBuilder {
         self.pad(e_def.payload_layout.size() - variant_layout.size());
     }
     */
-    fn push<'a>(&mut self, inst: Inst) -> Result<'a> {
+    fn push(&mut self, inst: Inst<Ty<'tcx>>) -> Result<'tcx> {
         if self.insts.len() >= MAX_NFA_SIZE {
             Err(BuilderError::NfaTooLarge)
         } else {
@@ -278,8 +361,8 @@ impl NfaBuilder {
         }
     }
 
-    fn repeat_with<'a, F>(&mut self, count: u32, f: F) -> Result<'a>
-        where F: Fn() -> Inst
+    fn repeat_with<F>(&mut self, count: u32, f: F) -> Result<'tcx>
+        where F: Fn() -> Inst<Ty<'tcx>>
     {
         for _ in 0..count {
             self.push(f())?;
@@ -287,24 +370,29 @@ impl NfaBuilder {
         Ok(())
     }
 
-    fn pad<'a>(&mut self, padding: usize) -> Result<'a> {
+    fn pad(&mut self, padding: usize) -> Result<'tcx> {
+        let parent = *self.debug_parents.last()
+            .expect("there should be at least root parent");
+        self.debug.push(DebugEntry::Padding { ip: self.insts.len() as InstPtr, parent });
+
         // println!("i:{}, padding: {}, layout: {:?}", self.insts.len(), padding, self.layout);
         let padding_layout = Layout::from_size_align(padding, 1).unwrap();
         self.layout = self.layout.extend(padding_layout).unwrap().0;
+
         self.repeat_with(padding as u32, || Inst::Uninit)
     }
 
-    fn pad_to_align<'a>(&mut self, align: usize) -> Result<'a> {
+    fn pad_to_align(&mut self, align: usize) -> Result<'tcx> {
         let padding = self.layout.padding_needed_for(align);
         self.pad(padding)
     }
 
-    fn number<'a>(&mut self, size: u32, layout: Layout) -> Result<'a> {
+    fn number(&mut self, size: u32, layout: Layout) -> Result<'tcx> {
         self.repeat_byte(size, (0..=255).into())?;
         self.layout = self.layout.extend(layout)?.0;
         Ok(())
     }
-    fn repeat_byte<'a>(&mut self, size: u32, byte_ranges: RangeInclusive) -> Result<'a> {
+    fn repeat_byte(&mut self, size: u32, byte_ranges: RangeInclusive) -> Result<'tcx> {
         let private = self.priv_depth > 0;
         self.repeat_with(size, || Inst::ByteRange(InstByteRange {
             private,
