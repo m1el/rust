@@ -1,6 +1,6 @@
-use crate::Assume;
 use crate::debug::DebugEntry;
 use crate::prog::{AcceptState, InstPtr, LayoutStep, ProgFork, Program};
+use crate::Assume;
 use core::ops::ControlFlow;
 use rustc_macros::TypeFoldable;
 

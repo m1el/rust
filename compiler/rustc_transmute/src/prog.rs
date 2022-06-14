@@ -1,5 +1,5 @@
-use crate::Assume;
 use crate::debug::DebugEntry;
+use crate::Assume;
 use core::fmt::{self, Debug};
 use core::marker::PhantomData;
 
