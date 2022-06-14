@@ -1,28 +1,35 @@
 use crate::build::NfaBuilder;
-use crate::nfa::{Byte, Nfa, State, Transition};
-use crate::Answer;
-use crate::{Map, Set, Types};
+// use crate::nfa::{Byte, Nfa, State, Transition};
+// use crate::Answer;
+use crate::exec::Execution;
 use crate::TransmuteError;
-use crate::exec::{Execution, CheckReason};
+use crate::Types; //Map, Set, Types};
 
-use rustc_middle::ty::layout::HasTyCtxt;
-use rustc_middle::ty::{Binder, ParamEnv, Ty, TyCtxt};
+// use rustc_middle::ty::layout::HasTyCtxt;
+use rustc_middle::ty::{Binder, Ty, TyCtxt};
 
 pub fn check_transmute<'tcx>(
     tcx: TyCtxt<'tcx>,
+    scope: Ty<'tcx>,
     src_and_dst: Binder<'tcx, Types<'tcx>>,
 ) -> Result<(), TransmuteError<'tcx>> {
     let src_ty = src_and_dst.map_bound(|types| types.src).skip_binder();
     let dst_ty = src_and_dst.map_bound(|types| types.dst).skip_binder();
-    let dst_nfa = NfaBuilder::build_ty(dst_ty, tcx)?;
-    let src_nfa = NfaBuilder::build_ty(src_ty, tcx)?;
-    let mut queue = vec![(dst_nfa, src_nfa)];
-    while let Some((dst, src)) = queue.pop() {
-        let result = Execution::new(dst, src).check();
+    let dst_nfa = NfaBuilder::build_ty(tcx, scope, dst_ty)?;
+    let src_nfa = NfaBuilder::build_ty(tcx, scope, src_ty)?;
+    // println!("dst: {:?}", dst_nfa);
+    // println!("src: {:?}", src_nfa);
+    let mut queue = vec![Execution::new(dst_nfa, src_nfa)];
+    while let Some(mut exec) = queue.pop() {
+        let result = exec.check();
+        if result.len() != 0 {
+            return Err(TransmuteError::WhateverError);
+        }
     }
     Ok(())
 }
 
+/*
 pub fn maybe_transmutable<'tcx>(
     src_ty: Ty<'tcx>,
     dst_ty: Ty<'tcx>,
@@ -263,3 +270,4 @@ where
         });
     result
 }
+*/

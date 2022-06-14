@@ -1,18 +1,6 @@
+use crate::prog::{AcceptState, InstPtr, LayoutStep, ProgFork, Program};
 use core::ops::ControlFlow;
-
-use std::process::Command;
-use std::error::Error;
-use std::io::Write;
-use std::fs::OpenOptions;
-
 use rustc_middle::ty::Ty;
-
-use crate::prog::{InstPtr, Program, ProgFork, StepByte, LayoutStep, AcceptState};
-
-pub enum CheckReason {
-    Root,
-    Ref,
-}
 
 enum ForkReason {
     Src,
@@ -26,6 +14,7 @@ struct ExecFork {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct Reject<'tcx> {
     src: InstPtr,
     dst: InstPtr,
@@ -69,7 +58,11 @@ impl<'tcx> Execution<'tcx> {
     }
 
     /*
-    fn print_dot(&self) -> Result<(), Box<dyn Error>> {
+    fn print_dot(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use std::process::Command;
+        use std::fs::OpenOptions;
+        use std::io::Write;
+
         let mut file = OpenOptions::new()
             .create(true).truncate(true)
             .write(true)
@@ -101,7 +94,7 @@ impl<'tcx> Execution<'tcx> {
                         ControlFlow::Continue(_) => continue 'outer,
                         ControlFlow::Break(_) => break 'outer,
                     }
-                }
+                };
             }
 
             let src_fork = self.src.save_fork();
@@ -118,28 +111,29 @@ impl<'tcx> Execution<'tcx> {
                 continue;
             }
 
-            let (s_ip, s_byte, d_ip, d_byte) =
-                match (self.src.next(), self.dst.next()) {
-                    (_, None) => pop!(),
-                    (None, Some(_)) => {
-                        unreachable!("src should have been extended to match dst");
-                    },
-                    (
-                        Some(LayoutStep::Byte { ip: s_ip, byte: s_byte, .. }),
-                        Some(LayoutStep::Byte { ip: d_ip, byte: d_byte, .. }),
-                    ) => (s_ip, s_byte, d_ip, d_byte),
-                    (Some(_), Some(_)) => {
-                        unreachable!("next_fork() must prevent us from getting LayoutStep::Fork from next()");
-                    },
-                };
+            let (s_ip, s_byte, d_ip, d_byte) = match (self.src.next(), self.dst.next()) {
+                (_, None) => pop!(),
+                (None, Some(_)) => {
+                    unreachable!("src should have been extended to match dst");
+                }
+                (
+                    Some(LayoutStep::Byte { ip: s_ip, byte: s_byte, .. }),
+                    Some(LayoutStep::Byte { ip: d_ip, byte: d_byte, .. }),
+                ) => (s_ip, s_byte, d_ip, d_byte),
+                (Some(_), Some(_)) => {
+                    unreachable!(
+                        "next_fork() must prevent us from getting LayoutStep::Fork from next()"
+                    );
+                }
+            };
 
             if self.accept[s_ip as usize].always() {
                 pop!();
             }
 
             let accepts = d_byte.accepts(&s_byte);
-            let (accepts, fork) = self.src.synthetic_fork(
-                s_ip, accepts, self.dst_forks != 0, &mut self.accept);
+            let (accepts, fork) =
+                self.src.synthetic_fork(s_ip, accepts, self.dst_forks != 0, &mut self.accept);
 
             self.accept[s_ip as usize] = accepts.clone();
 
@@ -148,17 +142,11 @@ impl<'tcx> Execution<'tcx> {
             }
 
             if !accepts.always() {
-                self.reject.push(Reject {
-                    src: s_ip,
-                    dst: d_ip,
-                    reason: accepts,
-                });
+                self.reject.push(Reject { src: s_ip, dst: d_ip, reason: accepts });
                 pop!();
             }
         }
 
-        self.reject.drain(..)
-            .filter(|rej| !self.accept[rej.src as usize].always())
-            .collect()
+        self.reject.drain(..).filter(|rej| !self.accept[rej.src as usize].always()).collect()
     }
 }

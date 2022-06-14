@@ -1,25 +1,25 @@
 #![feature(alloc_layout_extra, control_flow_enum, iterator_try_reduce)]
-#![allow(unused_imports, dead_code, unused_variables)]
-use rustc_infer::infer::InferCtxt;
+//#![allow(unused_imports, dead_code, unused_variables)]
+// use rustc_infer::infer::InferCtxt;
 use rustc_macros::TypeFoldable;
-use rustc_middle::traits::ObligationCause;
-use rustc_middle::ty::Binder;
+// use rustc_middle::traits::ObligationCause;
+// use rustc_middle::ty::Binder;
 use rustc_middle::ty::Ty;
 
-pub(crate) use rustc_data_structures::fx::FxHashMap as Map;
-pub(crate) use rustc_data_structures::fx::FxHashSet as Set;
+// pub(crate) use rustc_data_structures::fx::FxHashMap as Map;
+// pub(crate) use rustc_data_structures::fx::FxHashSet as Set;
 
-mod debug;
 mod build;
+mod debug;
 mod exec;
+mod maybe_transmutable;
 mod prog;
-mod nfa;
 
-pub use nfa::Nfa;
 pub use build::BuilderError;
 
 pub enum TransmuteError<'tcx> {
     BuilderError(BuilderError<'tcx>),
+    WhateverError,
 }
 
 impl<'tcx> core::convert::From<BuilderError<'tcx>> for TransmuteError<'tcx> {
@@ -28,8 +28,6 @@ impl<'tcx> core::convert::From<BuilderError<'tcx>> for TransmuteError<'tcx> {
     }
 }
 
-mod maybe_transmutable;
-pub use maybe_transmutable::maybe_transmutable;
 pub use maybe_transmutable::check_transmute;
 
 #[derive(TypeFoldable, Debug, Clone, Copy)]
@@ -37,7 +35,7 @@ pub struct Types<'tcx> {
     pub src: Ty<'tcx>,
     pub dst: Ty<'tcx>,
 }
-
+/*
 /// The type encodes answers to the question: "Are these types transmutable?"
 #[derive(Debug, Hash, Eq, PartialEq, PartialOrd, Ord, Clone)]
 pub enum Answer<'tcx> {
@@ -95,3 +93,4 @@ impl<'cx, 'tcx> TransmuteTypeEnv<'cx, 'tcx> {
         answer
     }
 }
+*/

@@ -1,18 +1,9 @@
+use crate::debug::DebugEntry;
 use core::fmt;
 use core::marker::PhantomData;
-use crate::debug::DebugEntry;
 
-use rustc_target::abi::{Endian};
-
-fn write_target_uint(endianness: Endian, target: &mut [u8], data: u128) {
-    // This u128 holds an "any-size uint" (since smaller uints can fits in it)
-    // So we do not write all bytes of the u128, just the "payload".
-    let len = target.len();
-    match endianness {
-        Endian::Little => target.copy_from_slice(&data.to_le_bytes()[..len]),
-        Endian::Big => target.copy_from_slice(&data.to_be_bytes()[16 - len..]),
-    };
-}
+use rustc_middle::mir::interpret::write_target_uint;
+use rustc_target::abi::Endian;
 
 pub type InstPtr = u32;
 
@@ -39,8 +30,11 @@ impl<R: Clone> fmt::Debug for Inst<R> {
                     RefKind::Not => "Shared",
                 };
                 let name = if d_ref.is_ptr { "Ptr" } else { "Ref" };
-                write!(f, "{}(kind={}, data_size={}, data_align={})",
-                    name, ref_kind, d_ref.data_align, d_ref.data_size)
+                write!(
+                    f,
+                    "{}(kind={}, data_size={}, data_align={})",
+                    name, ref_kind, d_ref.data_align, d_ref.data_size
+                )
             }
             Inst::RefTail => {
                 write!(f, "RefTail")
@@ -53,8 +47,7 @@ impl<R: Clone> fmt::Debug for Inst<R> {
                 if let Some(alternate) = range.alternate {
                     write!(f, "alt={}, ", alternate)?;
                 }
-                write!(f, "0x{:02x}-0x{:02x})",
-                    range.range.start, range.range.end)
+                write!(f, "0x{:02x}-0x{:02x})", range.range.start, range.range.end)
             }
             Split(ref split) => {
                 write!(f, "Split(alt={})", split.alternate)
@@ -68,9 +61,7 @@ impl<R: Clone> fmt::Debug for Inst<R> {
 
 impl<R: Clone> Inst<R> {
     pub fn new_invalid_split() -> Self {
-        Inst::Split(InstSplit {
-            alternate: InstPtr::MAX,
-        })
+        Inst::Split(InstSplit { alternate: InstPtr::MAX })
     }
     pub fn new_invalid_goto() -> Self {
         Inst::JoinGoto(InstPtr::MAX)
@@ -80,7 +71,7 @@ impl<R: Clone> Inst<R> {
             Inst::Split(ref mut split) => {
                 split.alternate = alternate;
             }
-            _ => panic!("invalid use of patch_split")
+            _ => panic!("invalid use of patch_split"),
         }
     }
     pub fn patch_goto(&mut self, addr: InstPtr) {
@@ -88,11 +79,10 @@ impl<R: Clone> Inst<R> {
             Inst::JoinGoto(ref mut goto) => {
                 *goto = addr;
             }
-            _ => panic!("invalid use of patch_goto")
+            _ => panic!("invalid use of patch_goto"),
         }
     }
 }
-
 
 #[derive(Debug, Clone)]
 pub enum AcceptState<R> {
@@ -122,7 +112,6 @@ pub enum StepByte<R: Clone> {
     RefTail,
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RangeInclusive {
     pub start: u8,
@@ -131,10 +120,7 @@ pub struct RangeInclusive {
 
 impl core::convert::From<core::ops::RangeInclusive<u8>> for RangeInclusive {
     fn from(src: core::ops::RangeInclusive<u8>) -> Self {
-        RangeInclusive {
-            start: *src.start(),
-            end: *src.end(),
-        }
+        RangeInclusive { start: *src.start(), end: *src.end() }
     }
 }
 impl RangeInclusive {
@@ -148,24 +134,18 @@ impl RangeInclusive {
 
 impl<R: Clone> StepByte<R> {
     pub fn accepts(&self, source: &StepByte<R>) -> AcceptState<R> {
-        use StepByte::*;
         use AcceptState::*;
+        use StepByte::*;
         match (self, source) {
             // Uninit bytes can accpet anything
             (Uninit, _) => Always,
             // Nothing can accept uninit
             (_, Uninit) => NeverReadUninit,
             // Cannot write private memory
-            (&ByteRange(true, _), _) => {
-                NeverWritePrivate
-            }
+            (&ByteRange(true, _), _) => NeverWritePrivate,
             // Cannot read private memory
-            (_, &ByteRange(true, _)) => {
-                NeverReadPrivate
-            }
-            (RefHead(ra), RefHead(rb)) => {
-                MaybeCheckRef(ra.ty.clone(), ra.ty.clone())
-            }
+            (_, &ByteRange(true, _)) => NeverReadPrivate,
+            (RefHead(ra), RefHead(rb)) => MaybeCheckRef(ra.ty.clone(), rb.ty.clone()),
             (RefTail, RefTail) => Always,
             (RefTail | RefHead(_), _) => NeverWriteRef,
             (_, RefTail | RefHead(_)) => NeverReadRef,
@@ -178,7 +158,7 @@ impl<R: Clone> StepByte<R> {
                 } else {
                     AcceptState::NeverOutOfRange(a, b)
                 }
-            },
+            }
         }
     }
 }
@@ -190,11 +170,7 @@ pub struct ProgFork {
 }
 
 pub enum LayoutStep<R: Clone> {
-    Byte {
-        ip: InstPtr,
-        pos: usize,
-        byte: StepByte<R>
-    },
+    Byte { ip: InstPtr, pos: usize, byte: StepByte<R> },
     Fork(ProgFork),
 }
 
@@ -220,16 +196,7 @@ pub struct Program<R: Clone> {
 
 impl<R: Clone> Program<R> {
     pub fn new(insts: Vec<Inst<R>>, debug: Vec<DebugEntry<R>>, size: usize) -> Self {
-        Self {
-            insts,
-            debug,
-            size,
-            ip: 0,
-            pos: 0,
-            sforks: 0,
-            took_fork: None,
-            current: None,
-        }
+        Self { insts, debug, size, ip: 0, pos: 0, sforks: 0, took_fork: None, current: None }
     }
 
     pub fn extend_to(&mut self, size: usize) {
@@ -239,17 +206,21 @@ impl<R: Clone> Program<R> {
         }
 
         assert!(self.sforks == 0, "Cannot extend program after synthetic fork");
-        assert!(matches!(self.insts.pop(), Some(Inst::Accept)),
-            "Expected the last instruction to be Accept");
+        assert!(
+            matches!(self.insts.pop(), Some(Inst::Accept)),
+            "Expected the last instruction to be Accept"
+        );
 
-        let start = self.insts.len();
         self.insts.extend((0..to_pad).map(|_| Inst::Uninit));
         self.insts.push(Inst::Accept);
     }
 
+    #[allow(dead_code)]
     pub fn print_dot<W: std::io::Write>(
-        &self, dst: &mut W, name: &str,
-        accepts: Option<&[AcceptState<R>]>
+        &self,
+        dst: &mut W,
+        name: &str,
+        accepts: Option<&[AcceptState<R>]>,
     ) -> std::io::Result<()> {
         let mut pos = 0;
         let mut ip = 0;
@@ -271,12 +242,14 @@ impl<R: Clone> Program<R> {
             //     Some(accepts) => format!("\\n{:?}", accepts[ip as usize]),
             //     None => "".into(),
             // };
-            writeln!(dst, "  {}_ip_{} [style=filled,fillcolor=\"{}\",shape=ellipse, label=\"pos={}, ip{}\"];",
-                name, ip, color, pos, ip)?;
+            writeln!(
+                dst,
+                "  {}_ip_{} [style=filled,fillcolor=\"{}\",shape=ellipse, label=\"pos={}, ip{}\"];",
+                name, ip, color, pos, ip
+            )?;
             match &self.insts[ip as usize] {
                 Inst::Accept => {
-                    writeln!(dst, "  {}_ip_{} -> {}_accepting;",
-                        name, ip, name)?;
+                    writeln!(dst, "  {}_ip_{} -> {}_accepting;", name, ip, name)?;
                     if let Some((oip, opos)) = to_visit.pop() {
                         pos = opos;
                         ip = oip;
@@ -286,23 +259,47 @@ impl<R: Clone> Program<R> {
                     }
                 }
                 Inst::Uninit => {
-                    writeln!(dst, "  {}_ip_{} -> {}_ip_{} [label=\"uninit\"];",
-                        name, ip, name, ip + 1)?;
+                    writeln!(
+                        dst,
+                        "  {}_ip_{} -> {}_ip_{} [label=\"uninit\"];",
+                        name,
+                        ip,
+                        name,
+                        ip + 1
+                    )?;
                     pos += 1;
                 }
                 Inst::ByteRange(range) => {
                     let start = range.range.start;
                     let end = range.range.end;
                     if start == end {
-                        writeln!(dst, "  {}_ip_{} -> {}_ip_{} [label=\"byte=0x{:02x}\"];",
-                                name, ip, name, ip + 1, start)?;
+                        writeln!(
+                            dst,
+                            "  {}_ip_{} -> {}_ip_{} [label=\"byte=0x{:02x}\"];",
+                            name,
+                            ip,
+                            name,
+                            ip + 1,
+                            start
+                        )?;
                     } else {
-                        writeln!(dst, "  {}_ip_{} -> {}_ip_{} [label=\"range=0x{:02x}-0x{:02x}\"];",
-                            name, ip, name, ip + 1, start, end)?;
+                        writeln!(
+                            dst,
+                            "  {}_ip_{} -> {}_ip_{} [label=\"range=0x{:02x}-0x{:02x}\"];",
+                            name,
+                            ip,
+                            name,
+                            ip + 1,
+                            start,
+                            end
+                        )?;
                     }
                     if let Some(alt) = range.alternate {
-                        writeln!(dst, "  {}_ip_{} -> {}_ip_{} [label=\"fork\"];",
-                            name, ip, name, alt)?;
+                        writeln!(
+                            dst,
+                            "  {}_ip_{} -> {}_ip_{} [label=\"fork\"];",
+                            name, ip, name, alt
+                        )?;
                     }
                     if let Some(alt) = range.alternate {
                         to_visit.push((alt, pos));
@@ -310,47 +307,57 @@ impl<R: Clone> Program<R> {
                     pos += 1;
                 }
                 Inst::Split(split) => {
-                    writeln!(dst, "  {}_ip_{} -> {}_ip_{};",
-                        name, ip, name, split.alternate)?;
-                    writeln!(dst, "  {}_ip_{} -> {}_ip_{};",
-                        name, ip, name, ip + 1)?;
+                    writeln!(dst, "  {}_ip_{} -> {}_ip_{};", name, ip, name, split.alternate)?;
+                    writeln!(dst, "  {}_ip_{} -> {}_ip_{};", name, ip, name, ip + 1)?;
                     stack.push(pos);
                 }
                 Inst::JoinGoto(addr) => {
-                    writeln!(dst, "  {}_ip_{} -> {}_ip_{} [label=\"goto\"];",
-                        name, ip, name, addr)?;
-                    pos = stack.pop()
-                        .expect("JoinGoto without matching split in the state machine");
+                    writeln!(
+                        dst,
+                        "  {}_ip_{} -> {}_ip_{} [label=\"goto\"];",
+                        name, ip, name, addr
+                    )?;
+                    pos =
+                        stack.pop().expect("JoinGoto without matching split in the state machine");
                 }
-                _ => { unimplemented!() }
+                _ => {
+                    unimplemented!()
+                }
             }
             ip += 1;
         }
         Ok(())
     }
 
-    pub fn accept_state(&self, start: usize) -> impl Iterator<Item=AcceptState<R>> + '_ {
+    pub fn accept_state(&self, start: usize) -> impl Iterator<Item = AcceptState<R>> + '_ {
         self.insts[start..].iter().map(|inst| match inst {
-            Inst::Split(_) | Inst::JoinGoto(_) | Inst::Accept =>
-                AcceptState::Always,
+            Inst::Split(_) | Inst::JoinGoto(_) | Inst::Accept => AcceptState::Always,
             _ => AcceptState::NeverUnreachable,
         })
     }
 
-    pub fn synthetic_fork(&mut self, ip: InstPtr,
-        accepts: AcceptState<R>, can_fork: bool, marks: &mut Vec<AcceptState<R>>
+    pub fn synthetic_fork(
+        &mut self,
+        ip: InstPtr,
+        accepts: AcceptState<R>,
+        can_fork: bool,
+        marks: &mut Vec<AcceptState<R>>,
     ) -> (AcceptState<R>, Option<ProgFork>) {
         let original = accepts.clone();
         let (dst, src) = match accepts {
             AcceptState::MaybeCheckRange(dst, src) => (dst, src),
-            _ => { return (original, None); }
+            _ => {
+                return (original, None);
+            }
         };
         if !dst.intersects(src) || !can_fork {
             return (original, None);
         }
         let mut previous = match &self.insts[ip as usize] {
             Inst::ByteRange(range) => range.clone(),
-            _ => { return (original, None); }
+            _ => {
+                return (original, None);
+            }
         };
         if src.start < dst.start {
             let missing_range = (src.start..=(dst.start - 1)).into();
@@ -389,6 +396,9 @@ impl<R: Clone> Program<R> {
         let mut pos = start as usize;
         let mut offset = (dst - pos) as InstPtr;
         let mut more_forks = Vec::new();
+
+        self.debug.push(DebugEntry::EnterFork { ip: dst as InstPtr, offset });
+
         loop {
             let mut inst = self.insts[pos].clone();
             match &mut inst {
@@ -397,11 +407,15 @@ impl<R: Clone> Program<R> {
                     split.alternate += offset;
                 }
                 Inst::JoinGoto(ref mut goto) => {
+                    let dst = self.insts.len();
                     if depth == 0 {
                         pos = *goto as usize;
-                        offset = (self.insts.len() - pos) as InstPtr;
+                        offset = (dst - pos) as InstPtr;
                         continue;
                     }
+
+                    self.debug.push(DebugEntry::EnterFork { ip: dst as InstPtr, offset });
+
                     depth -= 1;
                     *goto += offset;
                 }
@@ -414,7 +428,7 @@ impl<R: Clone> Program<R> {
                     self.insts.push(inst);
                     break;
                 }
-                _ => {  }
+                _ => {}
             }
             self.insts.push(inst);
             pos += 1;
@@ -425,7 +439,7 @@ impl<R: Clone> Program<R> {
                 Inst::ByteRange(ref mut range) => {
                     range.alternate = Some(dst);
                 }
-                _ => unreachable!("we should point to ByteRange")
+                _ => unreachable!("we should point to ByteRange"),
             }
         }
         dst as InstPtr
@@ -447,10 +461,8 @@ impl<R: Clone> Program<R> {
             self.advance();
         }
         match &self.current {
-            Some(LayoutStep::Fork(fork)) => {
-                Some(fork.clone())
-            }
-            _ => None
+            Some(LayoutStep::Fork(fork)) => Some(fork.clone()),
+            _ => None,
         }
     }
 
@@ -472,57 +484,42 @@ impl<R: Clone> Program<R> {
                 Inst::Accept => {
                     self.current = None;
                     return;
-                },
+                }
                 Inst::ByteRange(ref range) => {
                     if let Some(alternate) = range.alternate {
                         if self.took_fork.take() == Some(self.ip) {
                             Some(LayoutStep::Byte {
                                 ip: self.ip,
                                 pos: self.pos,
-                                byte: StepByte::ByteRange(range.private, range.range)
+                                byte: StepByte::ByteRange(range.private, range.range),
                             })
                         } else {
                             self.took_fork = Some(self.ip);
-                            self.current = Some(LayoutStep::Fork(ProgFork {
-                                ip: alternate,
-                                pos: self.pos,
-                            }));
+                            self.current =
+                                Some(LayoutStep::Fork(ProgFork { ip: alternate, pos: self.pos }));
                             return;
                         }
                     } else {
                         Some(LayoutStep::Byte {
                             ip: self.ip,
                             pos: self.pos,
-                            byte: StepByte::ByteRange(range.private, range.range)
+                            byte: StepByte::ByteRange(range.private, range.range),
                         })
                     }
                 }
                 Inst::Uninit => {
-                    Some(LayoutStep::Byte {
-                        ip: self.ip,
-                        pos: self.pos,
-                        byte: StepByte::Uninit
-                    })
-                },
+                    Some(LayoutStep::Byte { ip: self.ip, pos: self.pos, byte: StepByte::Uninit })
+                }
                 Inst::Split(ref split) => {
-                    Some(LayoutStep::Fork(ProgFork {
-                        ip: split.alternate,
-                        pos: self.pos,
-                    }))
+                    Some(LayoutStep::Fork(ProgFork { ip: split.alternate, pos: self.pos }))
                 }
-                Inst::Ref(ref d_ref) => {
-                    Some(LayoutStep::Byte {
-                        ip: self.ip,
-                        pos: self.pos,
-                        byte: StepByte::RefHead(d_ref.clone())
-                    })
-                }
+                Inst::Ref(ref d_ref) => Some(LayoutStep::Byte {
+                    ip: self.ip,
+                    pos: self.pos,
+                    byte: StepByte::RefHead(d_ref.clone()),
+                }),
                 Inst::RefTail => {
-                    Some(LayoutStep::Byte {
-                        ip: self.ip,
-                        pos: self.pos,
-                        byte: StepByte::RefTail,
-                    })
+                    Some(LayoutStep::Byte { ip: self.ip, pos: self.pos, byte: StepByte::RefTail })
                 }
                 &Inst::JoinGoto(addr) => {
                     self.ip = addr;
@@ -530,7 +527,7 @@ impl<R: Clone> Program<R> {
                 }
             };
             self.ip += 1;
-            if matches!(rv, Some(LayoutStep::Byte {..})) {
+            if matches!(rv, Some(LayoutStep::Byte { .. })) {
                 self.pos += 1;
             }
             self.current = rv;
@@ -570,13 +567,16 @@ impl<R> fmt::Debug for InstRef<R> {
             RefKind::Not => "Shared",
         };
         let name = if self.is_ptr { "Ptr" } else { "Ref" };
-        write!(f, "{}(kind={}, data_size={}, data_align={})",
-            name, ref_kind, self.data_align, self.data_size)
+        write!(
+            f,
+            "{}(kind={}, data_size={}, data_align={})",
+            name, ref_kind, self.data_align, self.data_size
+        )
     }
 }
 
 #[derive(Clone)]
-pub struct InstSplit {     
+pub struct InstSplit {
     pub alternate: InstPtr,
 }
 
@@ -588,18 +588,16 @@ pub struct InstByte {
 
 impl InstByte {
     pub fn for_literal<R: Clone>(
-        endian: Endian, size: usize,
-        value: u128, private: bool)
-    -> impl Iterator<Item=Inst<R>> {
+        endian: Endian,
+        size: usize,
+        value: u128,
+        private: bool,
+    ) -> impl Iterator<Item = Inst<R>> {
         let mut data = [0_u8; 16];
         let start = data.len() - size;
-        write_target_uint(endian, &mut data[start..], value);
-        LiteralBytes {
-            data,
-            private,
-            pos: start,
-            _marker: PhantomData,
-        }
+        write_target_uint(endian, &mut data[start..], value)
+            .expect("writing int literal should always succeed");
+        LiteralBytes { data, private, pos: start, _marker: PhantomData }
     }
 }
 
@@ -620,7 +618,6 @@ impl<R: Clone> Iterator for LiteralBytes<R> {
         Some(Inst::ByteRange(InstByteRange { alternate: None, private, range }))
     }
 }
-
 
 #[derive(Clone)]
 pub struct InstByteRange {
