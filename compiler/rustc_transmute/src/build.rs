@@ -139,7 +139,7 @@ impl<'tcx> NfaBuilder<'tcx> {
 
                 let private = !self.is_visible(adt_def.did());
                 self.has_private |= private;
-                self.priv_depth -= private as usize;
+                self.priv_depth += private as usize;
 
                 match adt_def.adt_kind() {
                     Struct => self.extend_struct(ty, *adt_def, substs_ref)?,
