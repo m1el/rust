@@ -1,7 +1,6 @@
 use crate::debug::DebugEntry;
 use crate::Assume;
 use core::fmt::{self, Debug};
-use core::marker::PhantomData;
 
 use rustc_macros::TypeFoldable;
 use rustc_middle::mir::interpret::write_target_uint;
@@ -655,25 +654,24 @@ impl InstByte {
         let start = data.len() - size;
         write_target_uint(endian, &mut data[start..], value)
             .expect("writing int literal should always succeed");
-        LiteralBytes { data, private, pos: start, _marker: PhantomData }
+        LiteralBytes { data, private, pos: start }.map(Inst::ByteRange)
     }
 }
 
-struct LiteralBytes<'tcx> {
+struct LiteralBytes {
     data: [u8; 16],
     private: bool,
     pos: usize,
-    _marker: PhantomData<&'tcx ()>,
 }
 
-impl<'tcx> Iterator for LiteralBytes<'tcx> {
-    type Item = Inst<'tcx>;
+impl Iterator for LiteralBytes {
+    type Item = InstByteRange;
     fn next(&mut self) -> Option<Self::Item> {
         let byte = *self.data.get(self.pos)?;
         let range = (byte..=byte).into();
         let private = self.private;
         self.pos += 1;
-        Some(Inst::ByteRange(InstByteRange { alternate: None, private, range }))
+        Some(InstByteRange { alternate: None, private, range })
     }
 }
 
