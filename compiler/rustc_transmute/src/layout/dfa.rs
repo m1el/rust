@@ -105,53 +105,47 @@ where
 
     #[tracing::instrument]
     pub(crate) fn from_nfa(nfa: Nfa<R>) -> Self {
-        #[cfg_attr(feature = "rustc", allow(rustc::potential_query_instability))]
-        fn nfa_set_transitions<R>(
-            starts: &Vec<nfa::State>,
-            transitions: &Map<nfa::State, Map<nfa::Transition<R>, Set<nfa::State>>>,
-        ) -> Map<nfa::Transition<R>, Vec<nfa::State>>
-        where
-            R: Ref,
-        {
-            let mut map: Map<nfa::Transition<R>, Vec<nfa::State>> = Map::default();
-
-            for (transition, states) in starts
-                .into_iter()
-                .map(|start| transitions.get(start).into_iter().flatten())
-                .flatten()
-            {
-                map.entry(transition.clone()).or_default().extend(states);
-            }
-            map
-        }
-
         let Nfa { transitions: nfa_transitions, start: nfa_start, accepting: nfa_accepting } = nfa;
+
         let mut dfa_transitions: Map<State, Transitions<R>> = Map::default();
+        let mut nfa_to_dfa: Map<nfa::State, State> = Map::default();
+        let dfa_start = State::new();
+        nfa_to_dfa.insert(nfa_start, dfa_start);
 
-        let mut nfa_to_dfa: Map<Vec<nfa::State>, State> = Map::default();
+        let mut queue = vec![(nfa_start, dfa_start)];
 
-        let nfa_start_set = vec![nfa_start];
-        nfa_to_dfa.insert(nfa_start_set.clone(), State::new());
+        while let Some((nfa_state, dfa_state)) = queue.pop() {
+            if nfa_state == nfa_accepting {
+                continue;
+            }
 
-        let mut queue = vec![nfa_start_set.clone()];
+            for (nfa_transition, next_nfa_states) in nfa_transitions[&nfa_state].iter() {
+                let dfa_transitions =
+                    dfa_transitions.entry(dfa_state).or_insert_with(Default::default);
 
-        while let Some(nfa_states) = queue.pop() {
-            let dfa_state = *nfa_to_dfa.get(&nfa_states).unwrap();
-            #[cfg_attr(feature = "rustc", allow(rustc::potential_query_instability))]
-            for (transition, nfa_states_prime) in nfa_set_transitions(&nfa_states, &nfa_transitions)
-            {
-                let dfa_state_prime = State::new();
-                nfa_to_dfa.insert(nfa_states_prime.clone(), dfa_state_prime);
-                dfa_transitions
-                    .entry(dfa_state)
-                    .or_default()
-                    .insert(transition.into(), dfa_state_prime);
-                queue.push(nfa_states_prime);
+                let mapped_state = next_nfa_states.iter().find_map(|x| nfa_to_dfa.get(x).copied());
+
+                let next_dfa_state = match nfa_transition {
+                    &nfa::Transition::Byte(b) => *dfa_transitions
+                        .byte_transitions
+                        .entry(b)
+                        .or_insert_with(|| mapped_state.unwrap_or_else(State::new)),
+                    &nfa::Transition::Ref(r) => *dfa_transitions
+                        .ref_transitions
+                        .entry(r)
+                        .or_insert_with(|| mapped_state.unwrap_or_else(State::new)),
+                };
+
+                for &next_nfa_state in next_nfa_states {
+                    nfa_to_dfa.entry(next_nfa_state).or_insert_with(|| {
+                        queue.push((next_nfa_state, next_dfa_state));
+                        next_dfa_state
+                    });
+                }
             }
         }
 
-        let dfa_start = nfa_to_dfa[&nfa_start_set];
-        let dfa_accepting = nfa_to_dfa[&vec![nfa_accepting]];
+        let dfa_accepting = nfa_to_dfa[&nfa_accepting];
 
         Self { transitions: dfa_transitions, start: dfa_start, accepting: dfa_accepting }
     }
